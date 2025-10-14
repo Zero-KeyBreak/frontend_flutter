@@ -6,6 +6,7 @@ import 'package:tp_bank/screens/transfer_screen.dart';
 import 'package:tp_bank/core/models/user_model.dart';
 import 'package:tp_bank/screens/qr_screen.dart';
 import 'package:tp_bank/screens/qr_scanner.dart';
+import 'package:tp_bank/screens/3g_4g_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final User user;
@@ -115,6 +116,61 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     _fetchUserData();
+  }
+
+  void _showDepositOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return Container(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Chọn phương thức nạp tiền',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 16),
+              ListTile(
+                leading: Icon(
+                  Icons.account_balance_wallet,
+                  color: const Color(0xFF7E57C2),
+                ),
+                title: Text('Ví điện tử'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showComingSoon(context, 'Ví điện tử');
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.phone_android_outlined,
+                  color: const Color(0xFF7E57C2),
+                ),
+                title: Text('Tiền điện thoại'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showComingSoon(context, 'Tiền điện thoại');
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.wifi, color: const Color(0xFF7E57C2)),
+                title: Text('Data 3G/4G'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => WifiScreen()),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _fetchUserData() async {
@@ -383,7 +439,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: feature['icon'],
                     label: feature['label'],
                     color: feature['color'],
-                    onTap: () => print('Selected: ${feature['label']}'),
+                    onTap: () {
+                      switch (feature['label']) {
+                        case 'Nạp tiền':
+                          _showDepositOptions();
+                          break;
+                        default:
+                          _showComingSoon(context, feature['label']);
+                      }
+                    },
                   );
                 },
               ),
