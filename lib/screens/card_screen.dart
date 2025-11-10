@@ -21,6 +21,9 @@ class _CardScreenState extends State<CardScreen> {
   @override
   void initState() {
     super.initState();
+    // ✅ Hiển thị trước dữ liệu mặc định
+    _cards = widget.cards;
+    // ✅ Load dữ liệu thật ở nền (không chặn UI)
     _loadCards();
   }
 
@@ -32,8 +35,6 @@ class _CardScreenState extends State<CardScreen> {
       setState(() {
         _cards = decoded.map((e) => Map<String, String>.from(e)).toList();
       });
-    } else {
-      _cards = widget.cards;
     }
   }
 
@@ -111,10 +112,32 @@ class _CardScreenState extends State<CardScreen> {
                 }
 
                 if (newCard != null) {
-                  setState(() {
-                    _cards.add(Map<String, String>.from(newCard));
-                  });
-                  _saveCards(); // 🔥 lưu lại ngay khi thêm
+                  final exists = _cards.any(
+                    (c) => c['name'] == newCard['name'],
+                  );
+                  if (exists) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Bạn đã có thẻ "${newCard['name']}" rồi!',
+                        ),
+                        backgroundColor: Colors.orangeAccent,
+                      ),
+                    );
+                  } else {
+                    setState(() {
+                      _cards.add(Map<String, String>.from(newCard));
+                    });
+                    _saveCards();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Thêm thẻ "${newCard['name']}" thành công!',
+                        ),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
                 }
               },
               child: Container(
@@ -175,9 +198,8 @@ class _CardScreenState extends State<CardScreen> {
       context,
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => CardDetailScreen(card: card),
-        transitionsBuilder: (_, animation, __, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
+        transitionsBuilder: (_, animation, __, child) =>
+            FadeTransition(opacity: animation, child: child),
       ),
     );
 
@@ -188,16 +210,12 @@ class _CardScreenState extends State<CardScreen> {
         );
         if (index != -1) _cards[index] = updatedCard;
       });
-      _saveCards(); // 🔥 lưu lại khi cập nhật
+      _saveCards();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_cards.isEmpty) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -231,85 +249,88 @@ class _CardScreenState extends State<CardScreen> {
             ),
             const SizedBox(height: 15),
             Expanded(
-              child: ListView.builder(
-                itemCount: _cards.length,
-                itemBuilder: (context, index) {
-                  final card = _cards[index];
-                  final isActive = card['status'] == 'Đang hoạt động';
+              child: _cards.isEmpty
+                  ? const Center(child: Text('Chưa có thẻ nào'))
+                  : ListView.builder(
+                      itemCount: _cards.length,
+                      itemBuilder: (context, index) {
+                        final card = _cards[index];
+                        final isActive = card['status'] == 'Đang hoạt động';
 
-                  return GestureDetector(
-                    onTap: () => _navigateToCardDetail(card),
-                    child: Hero(
-                      tag: card['name']!,
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color.fromARGB(255, 238, 230, 251),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.asset(
-                                card['image']!,
-                                width: 120,
-                                height: 80,
-                                fit: BoxFit.cover,
+                        return GestureDetector(
+                          onTap: () => _navigateToCardDetail(card),
+                          child: Hero(
+                            tag: card['name']!,
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color.fromARGB(255, 238, 230, 251),
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Row(
                                 children: [
-                                  Text(
-                                    card['name']!,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.asset(
+                                      card['image']!,
+                                      width: 120,
+                                      height: 80,
+                                      fit: BoxFit.cover,
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        isActive
-                                            ? Icons.check_circle
-                                            : Icons.lock,
-                                        color: isActive
-                                            ? Colors.green
-                                            : Colors.redAccent,
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        card['status']!,
-                                        style: TextStyle(
-                                          color: isActive
-                                              ? Colors.green
-                                              : Colors.redAccent,
-                                          fontSize: 14,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          card['name']!,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              isActive
+                                                  ? Icons.check_circle
+                                                  : Icons.lock,
+                                              color: isActive
+                                                  ? Colors.green
+                                                  : Colors.redAccent,
+                                              size: 16,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              card['status']!,
+                                              style: TextStyle(
+                                                color: isActive
+                                                    ? Colors.green
+                                                    : Colors.redAccent,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    color: Color.fromARGB(255, 121, 29, 234),
+                                    size: 32,
                                   ),
                                 ],
                               ),
                             ),
-                            const Icon(
-                              Icons.chevron_right,
-                              color: Color.fromARGB(255, 121, 29, 234),
-                              size: 32,
-                            ),
-                          ],
-                        ),
-                      ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
             Padding(
               padding: const EdgeInsets.only(bottom: 20),

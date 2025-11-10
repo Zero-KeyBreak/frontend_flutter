@@ -4,6 +4,7 @@ import 'package:tp_bank/screens/card_screen.dart';
 import 'package:tp_bank/screens/history_screen.dart';
 import 'package:tp_bank/screens/info_account_screen.dart';
 import 'package:tp_bank/screens/number_phone_pay_screen.dart';
+import 'package:tp_bank/screens/personal_screen.dart'; // <- IMPORT
 import 'package:tp_bank/screens/transfer_screen.dart';
 import 'package:tp_bank/core/models/user_model.dart';
 import 'package:tp_bank/screens/qr_screen.dart';
@@ -33,33 +34,18 @@ class _HomeScreenState extends State<HomeScreen> {
   User? _apiUser;
   bool _isLoading = true;
 
-  // MÀU SẮC
   final Color _primaryColor = const Color(0xFF7E57C2);
   final Color _accentColor = const Color.fromARGB(225, 184, 73, 232);
   final Color _backgroundColor = const Color(0xFFF8F9FA);
   final Color _cardColor = Colors.white;
   late List<Map<String, dynamic>> _services;
   final List<Map<String, dynamic>> _features = [
-    {'icon': Icons.receipt, 'label': 'Thanh toán', 'color': Color(0xFF4CAF50)},
     {
       'icon': Icons.phone_iphone,
       'label': 'Nạp tiền',
       'color': Color(0xFF2196F3),
     },
     {'icon': Icons.credit_card, 'label': 'Thẻ', 'color': Color(0xFFFF9800)},
-    {'icon': Icons.savings, 'label': 'Tiết kiệm', 'color': Color(0xFF9C27B0)},
-    {
-      'icon': Icons.card_giftcard,
-      'label': 'Đổi quà',
-      'color': Color(0xFFE91E63),
-    },
-    {'icon': Icons.money, 'label': 'Khoản vay', 'color': Color(0xFF795548)},
-    {'icon': Icons.search, 'label': 'Tra cứu', 'color': Color(0xFF607D8B)},
-    {
-      'icon': Icons.more_horiz,
-      'label': 'Khác',
-      'color': Color.fromARGB(255, 203, 68, 172),
-    },
   ];
 
   @override
@@ -101,7 +87,6 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       {
         'icon': Icons.help,
-        // icon dấu chấm hỏi
         'label': 'Thông tin TK',
         'color': Color.fromARGB(255, 205, 63, 231),
         'onTap': (BuildContext context, User user) {
@@ -198,6 +183,222 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // --- Tách nội dung Home thành 1 phương thức để dễ quản lý ---
+  Widget _buildHomeContent(User user) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color.fromARGB(255, 125, 75, 210),
+                  Color.fromARGB(255, 109, 50, 211),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                //tài khoản
+                Row(
+                  children: [
+                    Icon(
+                      Icons.favorite_border,
+                      color: Colors.white70,
+                      size: 16,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      user.stk,
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    SizedBox(width: 16),
+                    Icon(Icons.phone, color: Colors.white70, size: 16),
+                    SizedBox(width: 6),
+                    Text(
+                      user.phone,
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _balanceVisible
+                            ? '${_formatCurrency(user.balance)} VND'
+                            : '••••••••',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _balanceVisible
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: Colors.white70,
+                        size: 20,
+                      ),
+                      onPressed: () =>
+                          setState(() => _balanceVisible = !_balanceVisible),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 30),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: _services.map((service) {
+                    return GestureDetector(
+                      onTap: () => service['onTap'](context, user),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(28),
+                              border: Border.all(
+                                color: Colors.white30,
+                                width: 1,
+                              ),
+                            ),
+                            child: Icon(
+                              service['icon'],
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            service['label'],
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ), // PROMO CARD
+          _buildCard(
+            margin: EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: _accentColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.local_offer, color: _accentColor),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '95K/ 2 vế tại rạp CGV, BHD, Lotte',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Mở thẻ FEST để hưởng ưu đãi ngay!',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
+          ), // GRID FEATURES
+          _buildCard(
+            margin: EdgeInsets.symmetric(horizontal: 16),
+            padding: EdgeInsets.all(20),
+            child: GridView.builder(
+              physics: NeverScrollableScrollPhysics(),
+              shrinkWrap: true,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 2,
+                crossAxisSpacing: 2,
+                mainAxisSpacing: 2,
+              ),
+              itemCount: _features.length,
+              itemBuilder: (context, index) {
+                final feature = _features[index];
+                return _buildFeatureButton(
+                  icon: feature['icon'],
+                  label: feature['label'],
+                  color: feature['color'],
+                  onTap: () {
+                    switch (feature['label']) {
+                      case 'Nạp tiền':
+                        _showDepositOptions();
+                        break;
+                      case 'Thẻ':
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => CardScreen(
+                              cards: [
+                                {
+                                  'name': 'VISA CREDIT CLASSIC',
+                                  'status': 'Đang khóa',
+                                  'image': 'assets/visa_credit_card.png',
+                                  'number': '**** 8717',
+                                  'expiry': '12/27',
+                                  'type': 'Credit',
+                                },
+                                {
+                                  'name': 'ATM SMART 24/7',
+                                  'status': 'Đang hoạt động',
+                                  'image': 'assets/atm_card.png',
+                                  'number': '**** 5258',
+                                  'expiry': '06/28',
+                                  'type': 'Debit',
+                                },
+                              ],
+                            ),
+                          ),
+                        );
+                        break;
+                      default:
+                        _showComingSoon(context, feature['label']);
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+          SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = _apiUser ?? widget.user;
@@ -211,281 +412,78 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    return Scaffold(
-      backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        backgroundColor: Color.fromARGB(255, 109, 50, 211),
-        elevation: 0,
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [_primaryColor, Color(0xFF9575CD)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: _primaryColor.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: Offset(0, 2),
+
+    // --- Tạo danh sách các page hiển thị tương ứng bottom bar ---
+    final List<Widget> pages = [
+      // page 0: Home content (giữ nguyên)
+      Scaffold(
+        backgroundColor: _backgroundColor,
+        appBar: AppBar(
+          backgroundColor: Color.fromARGB(255, 109, 50, 211),
+          elevation: 0,
+          title: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [_primaryColor, Color(0xFF9575CD)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
-              ),
-              child: Icon(Icons.person, color: Colors.white, size: 20),
-            ),
-            SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Xin chào',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-                Text(
-                  user.name,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.search, color: Colors.white),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: Icon(FontAwesomeIcons.solidBell, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Color.fromARGB(255, 125, 75, 210),
-                    Color.fromARGB(255, 109, 50, 211),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _primaryColor.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
                   ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
                 ),
+                child: Icon(Icons.person, color: Colors.white, size: 20),
               ),
-              child: Column(
+              SizedBox(width: 12),
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  //tài khoản
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.favorite_border,
-                        color: Colors.white70,
-                        size: 16,
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        user.stk,
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                      SizedBox(width: 16),
-                      Icon(Icons.phone, color: Colors.white70, size: 16),
-                      SizedBox(width: 6),
-                      Text(
-                        user.phone,
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                    ],
+                  Text(
+                    'Xin chào',
+                    style: TextStyle(fontSize: 12, color: Colors.white70),
                   ),
-                  SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _balanceVisible
-                              ? '${_formatCurrency(user.balance)} VND'
-                              : '••••••••',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(
-                          _balanceVisible
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                          color: Colors.white70,
-                          size: 20,
-                        ),
-                        onPressed: () =>
-                            setState(() => _balanceVisible = !_balanceVisible),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 30),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: _services.map((service) {
-                      return GestureDetector(
-                        onTap: () => service['onTap'](context, user),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 56,
-                              height: 56,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(28),
-                                border: Border.all(
-                                  color: Colors.white30,
-                                  width: 1,
-                                ),
-                              ),
-                              child: Icon(
-                                service['icon'],
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              service['label'],
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
+                  Text(
+                    user.name,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
-            ), // PROMO CARD
-            _buildCard(
-              margin: EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: _accentColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(Icons.local_offer, color: _accentColor),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '95K/ 2 vế tại rạp CGV, BHD, Lotte',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[800],
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Mở thẻ FEST để hưởng ưu đãi ngay!',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right, color: Colors.grey[400]),
-                ],
-              ),
-            ), // GRID FEATURES
-            _buildCard(
-              margin: EdgeInsets.symmetric(horizontal: 16),
-              padding: EdgeInsets.all(20),
-              child: GridView.builder(
-                physics: NeverScrollableScrollPhysics(),
-                shrinkWrap: true,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 4,
-                  childAspectRatio: 0.9,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                ),
-                itemCount: _features.length,
-                itemBuilder: (context, index) {
-                  final feature = _features[index];
-                  return _buildFeatureButton(
-                    icon: feature['icon'],
-                    label: feature['label'],
-                    color: feature['color'],
-                    onTap: () {
-                      switch (feature['label']) {
-                        case 'Nạp tiền':
-                          _showDepositOptions();
-                          break;
-                        case 'Thẻ':
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => CardScreen(
-                                cards: [
-                                  {
-                                    'name': 'VISA CREDIT CLASSIC',
-                                    'status': 'Đang khóa',
-                                    'image': 'assets/visa_credit_card.png',
-                                    'number': '**** 8717',
-                                    'expiry': '12/27',
-                                    'type': 'Credit',
-                                  },
-                                  {
-                                    'name': 'ATM SMART 24/7',
-                                    'status': 'Đang hoạt động',
-                                    'image': 'assets/atm_card.png',
-                                    'number': '**** 5258',
-                                    'expiry': '06/28',
-                                    'type': 'Debit',
-                                  },
-                                ],
-                              ),
-                            ),
-                          );
-                          break;
-                        default:
-                          _showComingSoon(context, feature['label']);
-                      }
-                    },
-                  );
-                },
-              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: Icon(Icons.search, color: Colors.white),
+              onPressed: () {},
             ),
-            SizedBox(height: 16),
-            _buildPromoSection('Quay ngay', 'Giao dịch trên App TPBank'),
-            _buildPromoSection('SẢN VÉ EM XINH "SAY HI" CONCERT', ''),
           ],
         ),
+        body: _buildHomeContent(user),
+        floatingActionButton: null,
+        bottomNavigationBar: null,
       ),
+
+      // page 1: Personal screen
+      const PersonalScreen(),
+    ];
+
+    return Scaffold(
+      // body là IndexedStack để giữ trạng thái mỗi page khi chuyển đổi
+      body: IndexedStack(index: _selectedIndex, children: pages),
+
+      // chung bottom nav và floating button ở ngoài -> hiển thị xuyên suốt
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -502,25 +500,17 @@ class _HomeScreenState extends State<HomeScreen> {
           selectedItemColor: _primaryColor,
           unselectedItemColor: Colors.grey[600],
           currentIndex: _selectedIndex,
-          onTap: (index) => setState(() => _selectedIndex = index),
           type: BottomNavigationBarType.fixed,
           selectedLabelStyle: TextStyle(fontSize: 12),
           unselectedLabelStyle: TextStyle(fontSize: 12),
+          onTap: (index) {
+            setState(() => _selectedIndex = index);
+          },
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.home_outlined),
               activeIcon: Icon(Icons.home),
               label: 'Trang chủ',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.apps_outlined),
-              activeIcon: Icon(Icons.apps),
-              label: 'Tiện ích',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_outlined),
-              activeIcon: Icon(Icons.account_balance),
-              label: 'Dịch vụ NH',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outlined),
@@ -530,6 +520,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+
       floatingActionButton: Container(
         width: 56,
         height: 56,
@@ -556,9 +547,10 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           onPressed: () {
+            // mở màn hình quét QR (nếu cần trả kết quả về)
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => QRScannerScreen()),
+              MaterialPageRoute(builder: (_) => const QRScannerScreen()),
             );
           },
           child: Icon(Icons.qr_code_scanner, color: Colors.white, size: 24),
@@ -605,6 +597,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 48,
@@ -625,32 +619,6 @@ class _HomeScreenState extends State<HomeScreen> {
               fontWeight: FontWeight.w500,
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPromoSection(String title, String subtitle) {
-    return _buildCard(
-      margin: EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[800],
-            ),
-          ),
-          if (subtitle.isNotEmpty) ...[
-            SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-            ),
-          ],
         ],
       ),
     );

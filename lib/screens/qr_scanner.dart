@@ -1,60 +1,109 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:ai_barcode_scanner/ai_barcode_scanner.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 
-class QRScannerScreen extends StatelessWidget {
+class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
 
   @override
+  State<QRScannerScreen> createState() => _QRScannerScreenState();
+}
+
+class _QRScannerScreenState extends State<QRScannerScreen> {
+  /// 📸 Hàm quét QR từ ảnh trong gallery
+  Future<void> _scanFromGallery() async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+      if (pickedFile == null) return;
+
+      final inputImage = InputImage.fromFile(File(pickedFile.path));
+      final barcodeScanner = BarcodeScanner();
+
+      final barcodes = await barcodeScanner.processImage(inputImage);
+      await barcodeScanner.close();
+
+      if (barcodes.isNotEmpty) {
+        final qrValue = barcodes.first.rawValue;
+        if (qrValue != null && mounted) {
+          Navigator.pop(context, qrValue);
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không tìm thấy mã QR trong ảnh')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Lỗi khi quét ảnh: $e')));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        AiBarcodeScanner(
-          onDetect: (BarcodeCapture capture) {
-            final code = capture.barcodes.first.rawValue;
-            if (code != null) {
-              Navigator.pop(context, code);
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text('QR: $code')));
-            }
-          },
-
-          appBarBuilder: (context, controller) {
-            return AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              leading: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
-              centerTitle: true,
-              title: const Text(
-                "Đặt mã QR vào khung để quét tự động",
-                style: TextStyle(color: Colors.white, fontSize: 16),
-              ),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.flash_on, color: Colors.white),
-                  onPressed: () => controller.toggleTorch(),
-                ),
-              ],
-            );
-          },
-
-          galleryButtonType: GalleryButtonType.icon,
-          galleryButtonText: "Chọn ảnh",
-          overlayConfig: const ScannerOverlayConfig(
-            scannerOverlayBackground: ScannerOverlayBackground.none,
-            scannerBorder: ScannerBorder.none,
-          ),
+    return Scaffold(
+      backgroundColor: const Color.fromARGB(255, 109, 50, 211),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
         ),
+        centerTitle: true,
+        title: const Text(
+          "Đặt mã QR vào khung để quét tự động",
+          style: TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.photo_library, color: Colors.white),
+            onPressed: _scanFromGallery, // 📁 Quét từ ảnh
+          ),
+          IconButton(
+            icon: const Icon(Icons.flash_on, color: Colors.white),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Flash chưa được bật')),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          AiBarcodeScanner(
+            onDetect: (capture) {
+              final code = capture.barcodes.first.rawValue;
+              if (code != null && mounted) {
+                Navigator.pop(context, code);
+              }
+            },
 
-        const _TPBankOverlay(),
-      ],
+            appBarBuilder: (context, controller) => const PreferredSize(
+              preferredSize: Size.zero,
+              child: SizedBox.shrink(),
+            ),
+
+            /// ✅ Overlay full che toàn bộ phần giao diện mặc định (ẩn các nút Upload, Flash...)
+            overlayConfig: const ScannerOverlayConfig(
+              scannerOverlayBackground: ScannerOverlayBackground.none,
+              scannerBorder: ScannerBorder.none,
+            ),
+          ),
+
+          const _TPBankOverlay(),
+        ],
+      ),
     );
   }
 }
+
+/// ========== LỚP PHỦ KHUNG QUÉT + BANNER ==========
 
 class _TPBankOverlay extends StatelessWidget {
   const _TPBankOverlay();
@@ -70,6 +119,7 @@ class _TPBankOverlay extends StatelessWidget {
           child: CustomPaint(painter: _BlurBackgroundPainter(scanBox)),
         ),
 
+        /// ✅ Khung quét chính
         Align(
           alignment: Alignment.center,
           child: Container(
@@ -82,8 +132,9 @@ class _TPBankOverlay extends StatelessWidget {
           ),
         ),
 
+        /// ✅ Tiêu đề trên cùng
         Align(
-          alignment: const Alignment(0, -0.65),
+          alignment: const Alignment(0, -0.7),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: const [
@@ -92,35 +143,39 @@ class _TPBankOverlay extends StatelessWidget {
                 style: TextStyle(
                   color: Color(0xFF6D20AF),
                   fontWeight: FontWeight.bold,
-                  fontSize: 32,
+                  fontSize: 30,
                 ),
               ),
               Text(
                 'Bank',
-                style: TextStyle(color: Color(0xFF6D20AF), fontSize: 32),
+                style: TextStyle(color: Color(0xFF6D20AF), fontSize: 30),
               ),
-              SizedBox(width: 20),
+              SizedBox(width: 10),
               Text(
-                'V',
-                style: TextStyle(
-                  color: Color(0xFFB71C1C),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 32,
-                ),
-              ),
-              Text(
-                'IETQR',
+                'VIETQR',
                 style: TextStyle(color: Colors.white, fontSize: 26),
               ),
             ],
           ),
         ),
 
-        const Align(alignment: Alignment(0, 0.7), child: _PartnerBanner()),
+        /// ✅ Dòng trạng thái
+        const Align(
+          alignment: Alignment(0, 0.7),
+          child: Text(
+            'Đang quét mã...',
+            style: TextStyle(color: Colors.white, fontSize: 18),
+          ),
+        ),
+
+        /// ✅ Banner chạy logo + dòng chữ
+        const Align(alignment: Alignment(0, 0.9), child: _PartnerBanner()),
       ],
     );
   }
 }
+
+/// ========== HIỆU ỨNG MỜ NGOÀI KHUNG ==========
 
 class _BlurBackgroundPainter extends CustomPainter {
   final double scanBox;
@@ -136,13 +191,12 @@ class _BlurBackgroundPainter extends CustomPainter {
     );
 
     final paint = Paint()
-      ..imageFilter = ImageFilter.blur(sigmaX: 10, sigmaY: 10)
+      ..imageFilter = ImageFilter.blur(sigmaX: 12, sigmaY: 12)
       ..color = Colors.black.withValues(alpha: 0.5)
       ..blendMode = BlendMode.srcOver;
 
     canvas.saveLayer(rect, Paint());
     canvas.drawRect(rect, paint);
-
     paint.blendMode = BlendMode.clear;
     canvas.drawRRect(
       RRect.fromRectAndRadius(cutOutRect, const Radius.circular(16)),
@@ -154,6 +208,8 @@ class _BlurBackgroundPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
+/// ========== BANNER CHẠY LOGO + TEXT ==========
 
 class _PartnerBanner extends StatefulWidget {
   const _PartnerBanner({super.key});
@@ -199,18 +255,24 @@ class _PartnerBannerState extends State<_PartnerBanner>
       'assets/payoo.png',
     ];
 
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        controller: _controller,
-        scrollDirection: Axis.horizontal,
-        itemCount: logos.length * 3,
-        separatorBuilder: (_, __) => const SizedBox(width: 30),
-        itemBuilder: (_, i) {
-          final logo = logos[i % logos.length];
-          return Image.asset(logo, height: 30);
-        },
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 38,
+          child: ListView.separated(
+            controller: _controller,
+            scrollDirection: Axis.horizontal,
+            itemCount: logos.length * 3,
+            separatorBuilder: (_, __) => const SizedBox(width: 25),
+            itemBuilder: (_, i) {
+              final logo = logos[i % logos.length];
+              return Image.asset(logo, height: 30);
+            },
+          ),
+        ),
+      ],
     );
   }
 }
