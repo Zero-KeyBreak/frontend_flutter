@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:tp_bank/core/providers/user_provider.dart';
+import 'package:tp_bank/screens/home_screen.dart';
 import 'package:tp_bank/screens/login_screen.dart';
+import 'package:tp_bank/app.dart';
 
 class MyAppView extends StatelessWidget {
-  const MyAppView({super.key});
+   final bool isLogged;
+  const MyAppView({super.key,required this.isLogged});
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +27,7 @@ class MyAppView extends StatelessWidget {
             outline: Colors.grey,
           ),
         ),
-        home: LoginScreen(),
+       home: isLogged ? HomeScreen() : LoginScreen(),
       ),
     );
   }

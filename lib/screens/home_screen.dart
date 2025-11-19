@@ -1,20 +1,25 @@
+// lib/screens/home_screen.dart
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:tp_bank/screens/card_screen.dart';
 import 'package:tp_bank/screens/history_screen.dart';
 import 'package:tp_bank/screens/info_account_screen.dart';
+import 'package:tp_bank/screens/login_screen.dart';
 import 'package:tp_bank/screens/number_phone_pay_screen.dart';
-import 'package:tp_bank/screens/personal_screen.dart'; // <- IMPORT
+import 'package:tp_bank/screens/personal_screen.dart';
 import 'package:tp_bank/screens/transfer_screen.dart';
-import 'package:tp_bank/core/models/user_model.dart';
 import 'package:tp_bank/screens/qr_screen.dart';
 import 'package:tp_bank/screens/qr_scanner.dart';
 import 'package:tp_bank/screens/3g_4g_screen.dart';
 import 'package:tp_bank/screens/wallet_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 class HomeScreen extends StatefulWidget {
-  final User user;
-  const HomeScreen({super.key, required this.user});
+  const HomeScreen({super.key});
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -29,15 +34,21 @@ void _showComingSoon(BuildContext context, String feature) {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  int? user_id = 0;
+  String username = "";
+  String phone = "";
+  String stk = "";
+  String user_balance = "0";
   int _selectedIndex = 0;
   bool _balanceVisible = true;
-  User? _apiUser;
   bool _isLoading = true;
+  String token = "";
 
   final Color _primaryColor = const Color(0xFF7E57C2);
   final Color _accentColor = const Color.fromARGB(225, 184, 73, 232);
   final Color _backgroundColor = const Color(0xFFF8F9FA);
   final Color _cardColor = Colors.white;
+
   late List<Map<String, dynamic>> _services;
   final List<Map<String, dynamic>> _features = [
     {
@@ -51,23 +62,18 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-
     _services = [
       {
         'icon': Icons.compare_arrows,
         'label': 'Chuyển tiền',
-        'onTap': (BuildContext context, User user) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => TransferScreen(user: user)),
-          );
+        'onTap': (BuildContext context) {
+          
         },
       },
       {
         'icon': Icons.history,
         'label': 'Lịch sử GD',
-        'color': Color.fromARGB(255, 13, 137, 239),
-        'onTap': (BuildContext context, User user) {
+        'onTap': (BuildContext context) {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => HistoryScreen()),
@@ -77,29 +83,87 @@ class _HomeScreenState extends State<HomeScreen> {
       {
         'icon': Icons.qr_code,
         'label': 'QR của tôi',
-        'color': Color(0xFFFF9800),
-        'onTap': (BuildContext context, User user) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => QrScreen(user: user)),
-          );
+        'onTap': (BuildContext context) {
+          
         },
       },
       {
         'icon': Icons.help,
         'label': 'Thông tin TK',
-        'color': Color.fromARGB(255, 205, 63, 231),
-        'onTap': (BuildContext context, User user) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => InfoAccountScreen(user: _apiUser ?? user),
-            ),
-          );
+        'onTap': (BuildContext context) {
+          
+          
         },
       },
     ];
-    _fetchUserData();
+
+    loadToken();
+    fetchUser(); // tải user khi khởi tạo
+  }
+
+  // Lưu ý: nếu chạy Android emulator -> dùng 10.0.2.2 thay vì localhost
+  Future<Map<String, dynamic>?> loadUserData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final int? id = prefs.getInt('user_id');
+      if (id == null) return null;
+      user_id = id;
+
+      final url = Uri.parse('http://10.0.2.2:4000/user/$id'); // đổi phù hợp
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) return decoded;
+        // nếu API trả về list => lấy phần tử 0
+        if (decoded is List && decoded.isNotEmpty && decoded[0] is Map<String, dynamic>) {
+          return decoded[0] as Map<String, dynamic>;
+        }
+        return null;
+      } else {
+        debugPrint('Lỗi API: ${response.statusCode} ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Exception loadUserData: $e');
+      return null;
+    }
+  }
+
+  Future<void> fetchUser() async {
+    setState(() => _isLoading = true);
+    final data = await loadUserData();
+
+    if (data != null) {
+      setState(() {
+        username = data['username']?.toString() ?? '';
+        phone = data['phone']?.toString() ?? '';
+        stk = data['stk']?.toString() ?? '';
+        user_balance = (data['balance'] != null) ? data['balance'].toString() : '0';
+        _isLoading = false;
+      });
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> loadToken() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      token = prefs.getString("token") ?? "";
+    });
+  }
+
+  Future<void> logout() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove("token");
+    await prefs.remove("user_id");
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
   }
 
   void _showDepositOptions() {
@@ -118,33 +182,19 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               SizedBox(height: 16),
               ListTile(
-                leading: Icon(
-                  Icons.account_balance_wallet,
-                  color: const Color(0xFF7E57C2),
-                ),
+                leading: Icon(Icons.account_balance_wallet, color: const Color(0xFF7E57C2)),
                 title: Text('Ví điện tử'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => WalletScreen()),
-                  );
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => WalletScreen()));
                 },
               ),
               ListTile(
-                leading: Icon(
-                  Icons.phone_android_outlined,
-                  color: const Color(0xFF7E57C2),
-                ),
+                leading: Icon(Icons.phone_android_outlined, color: const Color(0xFF7E57C2)),
                 title: Text('Tiền điện thoại'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => NumberPhonePayScreen(),
-                    ),
-                  );
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => NumberPhonePayScreen()));
                 },
               ),
               ListTile(
@@ -152,10 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 title: Text('Data 3G/4G'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => WifiScreen()),
-                  );
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => WifiScreen()));
                 },
               ),
             ],
@@ -165,26 +212,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _fetchUserData() async {
-    try {
-      setState(() {
-        _isLoading = true;
-      });
-      await Future.delayed(Duration(seconds: 1)); // giả lập API
-      setState(() {
-        _apiUser = widget.user;
-        _isLoading = false;
-      });
-    } catch (_) {
-      setState(() {
-        _apiUser = widget.user;
-        _isLoading = false;
-      });
-    }
-  }
+  Widget _buildHomeContent() {
+    // sử dụng các biến username, phone, stk, user_balance
+    final double balanceDouble = double.tryParse(user_balance.replaceAll(',', '')) ?? 0.0;
 
-  // --- Tách nội dung Home thành 1 phương thức để dễ quản lý ---
-  Widget _buildHomeContent(User user) {
     return SingleChildScrollView(
       child: Column(
         children: [
@@ -193,10 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: EdgeInsets.all(24),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  Color.fromARGB(255, 125, 75, 210),
-                  Color.fromARGB(255, 109, 50, 211),
-                ],
+                colors: [Color.fromARGB(255, 125, 75, 210), Color.fromARGB(255, 109, 50, 211)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -204,26 +232,16 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                //tài khoản
+                // tài khoản
                 Row(
                   children: [
-                    Icon(
-                      Icons.favorite_border,
-                      color: Colors.white70,
-                      size: 16,
-                    ),
+                    Icon(Icons.favorite_border, color: Colors.white70, size: 16),
                     SizedBox(width: 6),
-                    Text(
-                      user.stk,
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
+                    Text(stk, style: TextStyle(color: Colors.white70, fontSize: 12)),
                     SizedBox(width: 16),
                     Icon(Icons.phone, color: Colors.white70, size: 16),
                     SizedBox(width: 6),
-                    Text(
-                      user.phone,
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
+                    Text(phone, style: TextStyle(color: Colors.white70, fontSize: 12)),
                   ],
                 ),
                 SizedBox(height: 20),
@@ -231,27 +249,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        _balanceVisible
-                            ? '${_formatCurrency(user.balance)} VND'
-                            : '••••••••',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
+                        _balanceVisible ? '${_formatCurrency(balanceDouble)} VND' : '••••••••',
+                        style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
                       ),
                     ),
                     IconButton(
-                      icon: Icon(
-                        _balanceVisible
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        color: Colors.white70,
-                        size: 20,
-                      ),
-                      onPressed: () =>
-                          setState(() => _balanceVisible = !_balanceVisible),
+                      icon: Icon(_balanceVisible ? Icons.visibility_off : Icons.visibility, color: Colors.white70, size: 20),
+                      onPressed: () => setState(() => _balanceVisible = !_balanceVisible),
                     ),
                   ],
                 ),
@@ -260,35 +264,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: _services.map((service) {
                     return GestureDetector(
-                      onTap: () => service['onTap'](context, user),
+                      onTap: () => service['onTap'](context),
                       child: Column(
                         children: [
                           Container(
                             width: 56,
                             height: 56,
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.2),
+                              color: Colors.white.withOpacity(0.2),
                               borderRadius: BorderRadius.circular(28),
-                              border: Border.all(
-                                color: Colors.white30,
-                                width: 1,
-                              ),
+                              border: Border.all(color: Colors.white30, width: 1),
                             ),
-                            child: Icon(
-                              service['icon'],
-                              color: Colors.white,
-                              size: 24,
-                            ),
+                            child: Icon(service['icon'], color: Colors.white, size: 24),
                           ),
                           SizedBox(height: 8),
-                          Text(
-                            service['label'],
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                          Text(service['label'], style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
                         ],
                       ),
                     );
@@ -296,56 +286,38 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-          ), // PROMO CARD
+          ),
+
+          // Promo card
           _buildCard(
             margin: EdgeInsets.all(16),
             child: Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: _accentColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.local_offer, color: _accentColor),
-                ),
+                Container(width: 40, height: 40, decoration: BoxDecoration(color: _accentColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Icon(Icons.local_offer, color: _accentColor)),
                 SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '95K/ 2 vế tại rạp CGV, BHD, Lotte',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[800],
-                        ),
-                      ),
+                      Text('95K/ 2 vế tại rạp CGV, BHD, Lotte', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[800])),
                       SizedBox(height: 2),
-                      Text(
-                        'Mở thẻ FEST để hưởng ưu đãi ngay!',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
+                      Text('Mở thẻ FEST để hưởng ưu đãi ngay!', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                     ],
                   ),
                 ),
                 Icon(Icons.chevron_right, color: Colors.grey[400]),
               ],
             ),
-          ), // GRID FEATURES
+          ),
+
+          // Grid features
           _buildCard(
             margin: EdgeInsets.symmetric(horizontal: 16),
             padding: EdgeInsets.all(20),
             child: GridView.builder(
               physics: NeverScrollableScrollPhysics(),
               shrinkWrap: true,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 2,
-                crossAxisSpacing: 2,
-                mainAxisSpacing: 2,
-              ),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, childAspectRatio: 2, crossAxisSpacing: 2, mainAxisSpacing: 2),
               itemCount: _features.length,
               itemBuilder: (context, index) {
                 final feature = _features[index];
@@ -359,31 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         _showDepositOptions();
                         break;
                       case 'Thẻ':
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => CardScreen(
-                              cards: [
-                                {
-                                  'name': 'VISA CREDIT CLASSIC',
-                                  'status': 'Đang khóa',
-                                  'image': 'assets/visa_credit_card.png',
-                                  'number': '**** 8717',
-                                  'expiry': '12/27',
-                                  'type': 'Credit',
-                                },
-                                {
-                                  'name': 'ATM SMART 24/7',
-                                  'status': 'Đang hoạt động',
-                                  'image': 'assets/atm_card.png',
-                                  'number': '**** 5258',
-                                  'expiry': '06/28',
-                                  'type': 'Debit',
-                                },
-                              ],
-                            ),
-                          ),
-                        );
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => CardScreen(cards: [])));
                         break;
                       default:
                         _showComingSoon(context, feature['label']);
@@ -393,6 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
           ),
+
           SizedBox(height: 16),
         ],
       ),
@@ -401,21 +350,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = _apiUser ?? widget.user;
     if (_isLoading) {
       return Scaffold(
         backgroundColor: _backgroundColor,
-        body: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation(_primaryColor),
-          ),
-        ),
+        body: Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(_primaryColor))),
       );
     }
 
-    // --- Tạo danh sách các page hiển thị tương ứng bottom bar ---
     final List<Widget> pages = [
-      // page 0: Home content (giữ nguyên)
+      // Home page
       Scaffold(
         backgroundColor: _backgroundColor,
         appBar: AppBar(
@@ -427,19 +370,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [_primaryColor, Color(0xFF9575CD)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  gradient: LinearGradient(colors: [_primaryColor, Color(0xFF9575CD)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                   borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _primaryColor.withValues(alpha: 0.3),
-                      blurRadius: 8,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
+                  boxShadow: [BoxShadow(color: _primaryColor.withOpacity(0.3), blurRadius: 8, offset: Offset(0, 2))],
                 ),
                 child: Icon(Icons.person, color: Colors.white, size: 20),
               ),
@@ -447,112 +380,52 @@ class _HomeScreenState extends State<HomeScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Xin chào',
-                    style: TextStyle(fontSize: 12, color: Colors.white70),
-                  ),
-                  Text(
-                    user.name,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text('Xin chào', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                  Text(username, style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold)),
                 ],
               ),
             ],
           ),
           actions: [
-            IconButton(
-              icon: Icon(Icons.search, color: Colors.white),
-              onPressed: () {},
-            ),
+            IconButton(icon: Icon(Icons.search, color: Colors.white), onPressed: () {}),
           ],
         ),
-        body: _buildHomeContent(user),
-        floatingActionButton: null,
-        bottomNavigationBar: null,
+        body: _buildHomeContent(),
       ),
 
-      // page 1: Personal screen
+      // Personal page
       const PersonalScreen(),
     ];
 
     return Scaffold(
-      // body là IndexedStack để giữ trạng thái mỗi page khi chuyển đổi
       body: IndexedStack(index: _selectedIndex, children: pages),
-
-      // chung bottom nav và floating button ở ngoài -> hiển thị xuyên suốt
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black12,
-              blurRadius: 8,
-              offset: Offset(0, -2),
-            ),
-          ],
-        ),
+        decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
         child: BottomNavigationBar(
           backgroundColor: Colors.white,
           selectedItemColor: _primaryColor,
           unselectedItemColor: Colors.grey[600],
           currentIndex: _selectedIndex,
           type: BottomNavigationBarType.fixed,
-          selectedLabelStyle: TextStyle(fontSize: 12),
-          unselectedLabelStyle: TextStyle(fontSize: 12),
-          onTap: (index) {
-            setState(() => _selectedIndex = index);
-          },
+          onTap: (index) => setState(() => _selectedIndex = index),
           items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home),
-              label: 'Trang chủ',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Cá nhân',
-            ),
+            BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Trang chủ'),
+            BottomNavigationBarItem(icon: Icon(Icons.person_outlined), activeIcon: Icon(Icons.person), label: 'Cá nhân'),
           ],
         ),
       ),
-
       floatingActionButton: Container(
         width: 56,
         height: 56,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: LinearGradient(
-            colors: [
-              Color.fromARGB(255, 109, 50, 211),
-              Color.fromARGB(255, 146, 14, 235),
-              Color.fromARGB(255, 125, 75, 210),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _accentColor.withValues(alpha: 0.3),
-              blurRadius: 8,
-              offset: Offset(0, 4),
-            ),
-          ],
+          gradient: LinearGradient(colors: [Color.fromARGB(255, 109, 50, 211), Color.fromARGB(255, 146, 14, 235), Color.fromARGB(255, 125, 75, 210)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          boxShadow: [BoxShadow(color: _accentColor.withOpacity(0.3), blurRadius: 8, offset: Offset(0, 4))],
         ),
         child: FloatingActionButton(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          onPressed: () {
-            // mở màn hình quét QR (nếu cần trả kết quả về)
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const QRScannerScreen()),
-            );
-          },
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen())),
           child: Icon(Icons.qr_code_scanner, color: Colors.white, size: 24),
         ),
       ),
@@ -561,66 +434,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _formatCurrency(double amount) {
-    return amount
-        .toStringAsFixed(0)
-        .replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (m) => '${m[1]},',
-        );
+    return amount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
   }
 
-  Widget _buildCard({
-    required Widget child,
-    EdgeInsetsGeometry? margin,
-    EdgeInsetsGeometry? padding,
-  }) {
-    return Container(
-      margin: margin,
-      padding: padding ?? EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 2)),
-        ],
-      ),
-      child: child,
-    );
+  Widget _buildCard({required Widget child, EdgeInsetsGeometry? margin, EdgeInsetsGeometry? padding}) {
+    return Container(margin: margin, padding: padding ?? EdgeInsets.all(16), decoration: BoxDecoration(color: _cardColor, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 2))]), child: child);
   }
 
-  Widget _buildFeatureButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildFeatureButton({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
     return GestureDetector(
       onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          SizedBox(height: 6),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey[700],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.center, children: [
+        Container(width: 48, height: 48, decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color, size: 20)),
+        SizedBox(height: 6),
+        Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w500)),
+      ]),
     );
   }
 }

@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:tp_bank/core/services/auth_service.dart';
 import 'package:tp_bank/core/network/api_client.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:tp_bank/core/models/user_model.dart';
 import 'package:tp_bank/screens/home_screen.dart'; // Import class User
 // Import HomeScreen - điều chỉnh đường dẫn cho đúng
@@ -20,60 +25,40 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
 
   Future<void> _login() async {
-    // 🔥 TẠM THỜI: TEST VỚI USER GIẢ - COMMENT LẠI SAU KHI TEST
-    final testUser = User(
-      id: "1",
-      name: "TRẦN TUẤN TRIỆU",
-      phone: "077 998 7705",
-      stk: "0643 7082 701",
-      balance: 1840367.0,
-    );
+   final url = Uri.parse("http://localhost:4000/login");
+    final response = await http.post(
+    url,
+    headers: {"Content-Type": "application/json"},
+    body: jsonEncode({
+      "phone": _phoneController.text,
+      "password": _passwordController.text
+    }),
+  );
+    final data = jsonDecode(response.body);
 
-    _navigateToHome(testUser);
-    return;
-    // 🔥 NHỚ COMMENT LẠI PHẦN NÀY SAU KHI TEST
+     if (response.statusCode == 200) {
+      // ✅ Lưu token
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString("token", data["token"]);
+       await prefs.setInt("user_id", data["user"]["id"]);
 
-    /*
-  // PHẦN LOGIN THẬT - COMMENT TẠM
-  if (_phoneController.text.isEmpty || _passwordController.text.isEmpty) {
-    _showErrorDialog('Vui lòng nhập đầy đủ thông tin');
-    return;
-  }
-
-  setState(() {
-    _isLoading = true;
-  });
-
-  try {
-    final authResponse = await AuthService.login(
-      _phoneController.text,
-      _passwordController.text,
-    );
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (authResponse != null) {
-      ApiClient.setAuthToken(authResponse.token);
-      _navigateToHome(authResponse.user);
+      // ✅ Chuyển sang Home
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
     } else {
-      _showErrorDialog('Đăng nhập thất bại. Vui lòng thử lại.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(data["message"] ?? "Đăng nhập thất bại")),
+      );
     }
-  } catch (e) {
-    setState(() {
-      _isLoading = false;
-    });
-    _showErrorDialog('Lỗi: $e');
-  }
-  */
   }
 
   void _navigateToHome(User user) {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => HomeScreen(user: user), // THAY HomeScreen CỦA BẠN
+        builder: (context) => HomeScreen(), // THAY HomeScreen CỦA BẠN
       ),
     );
   }
