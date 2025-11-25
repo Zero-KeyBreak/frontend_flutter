@@ -3,10 +3,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../core/models/user_model.dart';
 
 class QrScreen extends StatefulWidget {
-  final User user;
+  
   final double defaultAmount;
 
-  const QrScreen({super.key, required this.user, this.defaultAmount = 50000});
+  const QrScreen({super.key, this.defaultAmount = 50000});
 
   @override
   State<QrScreen> createState() => _QrScreenState();
@@ -51,7 +51,7 @@ class _QrScreenState extends State<QrScreen>
 
   // Dữ liệu QR code: số tài khoản + số tiền
   String get qrData =>
-      "${widget.user.stk}?amount=${displayedAmount.toStringAsFixed(0)}";
+      "{widget.user.stk}?amount=${displayedAmount.toStringAsFixed(0)}";
 
   void _showChangeAmountSheet() {
     amountController.text = displayedAmount.toStringAsFixed(0);
@@ -150,7 +150,7 @@ class _QrScreenState extends State<QrScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                widget.user.name,
+             '',
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -159,7 +159,7 @@ class _QrScreenState extends State<QrScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                widget.user.stk,
+               '',
                 style: const TextStyle(fontSize: 16, color: Colors.black54),
               ),
               const SizedBox(height: 16),

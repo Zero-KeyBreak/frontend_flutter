@@ -62,40 +62,51 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _services = [
-      {
-        'icon': Icons.compare_arrows,
-        'label': 'Chuyển tiền',
-        'onTap': (BuildContext context) {
-          
-        },
-      },
-      {
-        'icon': Icons.history,
-        'label': 'Lịch sử GD',
-        'onTap': (BuildContext context) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => HistoryScreen()),
-          );
-        },
-      },
-      {
-        'icon': Icons.qr_code,
-        'label': 'QR của tôi',
-        'onTap': (BuildContext context) {
-          
-        },
-      },
-      {
-        'icon': Icons.help,
-        'label': 'Thông tin TK',
-        'onTap': (BuildContext context) {
-          
-          
-        },
-      },
-    ];
+   _services = [
+  {
+    'icon': Icons.compare_arrows,
+    'label': 'Chuyển tiền',
+    'onTap': (BuildContext context) async {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const TransferScreen()),
+      );
+
+      if (result == true) {
+        // Giao dịch thành công -> load lại số dư từ backend
+        fetchUser();   // dùng đúng hàm bạn đã có trong HomeScreen
+      }
+    },
+  },
+  {
+    'icon': Icons.history,
+    'label': 'Lịch sử GD',
+    'onTap': (BuildContext context) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => HistoryScreen()),
+      );
+    },
+  },
+  {
+    'icon': Icons.qr_code,
+    'label': 'QR của tôi',
+    'onTap': (BuildContext context) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => QrScreen()),
+      );
+    },
+  },
+  {
+    'icon': Icons.help,
+    'label': 'Thông tin TK',
+    'onTap': (BuildContext context) {
+      // TODO: mở màn Thông tin tài khoản
+    },
+  },
+];
+
 
     loadToken();
     fetchUser(); // tải user khi khởi tạo
@@ -103,32 +114,62 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Lưu ý: nếu chạy Android emulator -> dùng 10.0.2.2 thay vì localhost
   Future<Map<String, dynamic>?> loadUserData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final int? id = prefs.getInt('user_id');
-      if (id == null) return null;
-      user_id = id;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final int? id = prefs.getInt('user_id');
 
-      final url = Uri.parse('http://10.0.2.2:4000/user/$id'); // đổi phù hợp
-      final response = await http.get(url);
+    if (id == null) return null;
+    user_id = id;
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) return decoded;
-        // nếu API trả về list => lấy phần tử 0
-        if (decoded is List && decoded.isNotEmpty && decoded[0] is Map<String, dynamic>) {
-          return decoded[0] as Map<String, dynamic>;
+    // ƯU TIÊN THEO THỨ TỰ:
+    const tunnelUrl  = "https://df4b91vt-4000.asse.devtunnels.ms";
+    const androidUrl = "http://10.0.2.2:4000";   // Android emulator
+    const localUrl   = "http://localhost:4000";  // PC browser
+
+    // Danh sách URL thử lần lượt
+    final List<String> endpoints = [
+      "$tunnelUrl/user/$id",
+      "$androidUrl/user/$id",
+      "$localUrl/user/$id",
+    ];
+
+    for (final endpoint in endpoints) {
+      try {
+        final url = Uri.parse(endpoint);
+        debugPrint("🔍 Thử gọi API: $endpoint");
+        final response = await http.get(url);
+
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body);
+
+          // Trường hợp API trả về 1 object
+          if (decoded is Map<String, dynamic>) return decoded;
+
+          // Trường hợp API trả về 1 list
+          if (decoded is List &&
+              decoded.isNotEmpty &&
+              decoded[0] is Map<String, dynamic>) {
+            return decoded[0] as Map<String, dynamic>;
+          }
+
+          return null;
+        } else {
+          debugPrint("❌ Lỗi API $endpoint: "
+              "${response.statusCode} ${response.body}");
         }
-        return null;
-      } else {
-        debugPrint('Lỗi API: ${response.statusCode} ${response.body}');
-        return null;
+      } catch (e) {
+        debugPrint("⚠️ Không gọi được $endpoint: $e");
       }
-    } catch (e) {
-      debugPrint('Exception loadUserData: $e');
-      return null;
     }
+
+    // Nếu cả 3 endpoint đều fail
+    return null;
+  } catch (e) {
+    debugPrint("Exception loadUserData: $e");
+    return null;
   }
+}
+
 
   Future<void> fetchUser() async {
     setState(() => _isLoading = true);
@@ -182,20 +223,22 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               SizedBox(height: 16),
               ListTile(
-                leading: Icon(Icons.account_balance_wallet, color: const Color(0xFF7E57C2)),
-                title: Text('Ví điện tử'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => WalletScreen()));
-                },
-              ),
-              ListTile(
                 leading: Icon(Icons.phone_android_outlined, color: const Color(0xFF7E57C2)),
                 title: Text('Tiền điện thoại'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => NumberPhonePayScreen()));
-                },
+               onTap: () async {
+  Navigator.pop(context);
+
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => const NumberPhonePayScreen()),
+  );
+
+  // Nếu nạp thành công -> reload user
+  if (result == true) {
+    fetchUser(); // <-- giống TransferScreen
+  }
+},
+
               ),
               ListTile(
                 leading: Icon(Icons.wifi, color: const Color(0xFF7E57C2)),

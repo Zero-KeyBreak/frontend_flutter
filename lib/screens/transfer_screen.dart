@@ -1,15 +1,12 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:tp_bank/core/models/user_model.dart';
-import 'package:tp_bank/core/network/api_client.dart';
-import 'package:tp_bank/core/network/api_constants.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-class TransferScreen extends StatefulWidget {
-  final User user;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
-  const TransferScreen({super.key, required this.user});
+class TransferScreen extends StatefulWidget {
+  const TransferScreen({super.key});
 
   @override
   State<TransferScreen> createState() => _TransferScreenState();
@@ -25,6 +22,16 @@ class _TransferScreenState extends State<TransferScreen> {
   String? _amountError;
   bool _isLoading = false;
 
+  // ===== Thông tin user hiện tại (không dùng User model) =====
+  int? _userId;
+  String _username = '';
+  String _stk = '';
+  double _balance = 0;
+
+  // ===== Thông tin người nhận =====
+  String? _receiverName;
+  String? _receiverStk;
+
   final List<String> _banks = [
     'TPBank',
     'Vietcombank',
@@ -37,13 +44,11 @@ class _TransferScreenState extends State<TransferScreen> {
   ];
   String? _selectedBank;
 
-  late User _currentUser;
-
   @override
   void initState() {
     super.initState();
-    _currentUser = widget.user;
-    _contentController.text = '${_currentUser.name} chuyển tiền';
+    _contentController.text = 'Chuyển tiền'; // tạm, update sau khi load user
+    _loadUserInfo();
   }
 
   @override
@@ -54,6 +59,179 @@ class _TransferScreenState extends State<TransferScreen> {
     super.dispose();
   }
 
+  // ====== BASE URL FALLBACK (devtunnel -> android -> localhost) ======
+  final List<String> _baseUrls = const [
+    'https://df4b91vt-4000.asse.devtunnels.ms',
+    'http://10.0.2.2:4000', // Android emulator
+    'http://localhost:4000', // PC
+  ];
+
+  Future<http.Response?> _getWithFallback(String path) async {
+  http.Response? lastRes;
+
+  for (final base in _baseUrls) {
+    try {
+      final uri = Uri.parse('$base$path');
+      final res = await http.get(uri).timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return res;
+      } else {
+        debugPrint('GET $uri lỗi: ${res.statusCode} ${res.body}');
+        lastRes = res; // lưu lại response cuối cùng
+      }
+    } catch (e) {
+      debugPrint('GET exception ($path, $base): $e');
+    }
+  }
+
+  // nếu tất cả đều fail / 404 → trả về response cuối cùng (để còn đọc statusCode)
+  return lastRes;
+}
+
+
+  Future<http.Response?> _postWithFallback(
+      String path, Map<String, dynamic> body) async {
+    for (final base in _baseUrls) {
+      try {
+        final uri = Uri.parse('$base$path');
+        final res = await http
+            .post(
+              uri,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 5));
+        if (res.statusCode == 200 || res.statusCode == 201) {
+          return res;
+        } else {
+          debugPrint('POST $uri lỗi: ${res.statusCode} ${res.body}');
+        }
+      } catch (e) {
+        debugPrint('POST exception ($path, $base): $e');
+      }
+    }
+    return null;
+  }
+
+  // ===== Load thông tin user giống Home (không dùng User model) =====
+  Future<void> _loadUserInfo() async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final int? id = prefs.getInt('user_id');
+      if (id == null) {
+        _showErrorDialog('Không tìm thấy user_id trong máy.');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+      _userId = id;
+
+      final res = await _getWithFallback('/user/$id');
+      if (res == null) {
+        _showErrorDialog('Có lỗi xảy ra khi tải thông tin tài khoản.');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final decoded = jsonDecode(res.body);
+      Map<String, dynamic>? data;
+      if (decoded is Map<String, dynamic>) {
+        data = decoded;
+      } else if (decoded is List &&
+          decoded.isNotEmpty &&
+          decoded[0] is Map<String, dynamic>) {
+        data = decoded[0] as Map<String, dynamic>;
+      }
+
+      if (data == null) {
+        _showErrorDialog('Dữ liệu tài khoản không hợp lệ.');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final dynamic bal = data['balance'];
+      final double balance = bal is num
+          ? bal.toDouble()
+          : double.tryParse(bal?.toString() ?? '0') ?? 0;
+
+      setState(() {
+        _username = data?['username']?.toString() ?? '';
+        _stk = data?['stk']?.toString() ?? '';
+        _balance = balance;
+        _contentController.text =
+            _username.isNotEmpty ? '$_username chuyển tiền' : 'Chuyển tiền';
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Exception _loadUserInfo: $e');
+      _showErrorDialog('Có lỗi xảy ra khi tải thông tin tài khoản.');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  // ====== TÌM NGƯỜI NHẬN TỪ STK / SĐT ======
+  Future<bool> _fetchReceiverInfo() async {
+    final input = _accountController.text.trim();
+    if (input.isEmpty) {
+      _showErrorDialog('Vui lòng nhập số tài khoản / số điện thoại người nhận');
+      return false;
+    }
+
+    // Với loại 2 (ATM) thì backend users không có thẻ ATM -> tạm không lookup
+    if (_selectedTransferType == 2) {
+      setState(() {
+        _receiverName = null;
+        _receiverStk = input;
+      });
+      return true;
+    }
+
+    // Ở đây anh đang gọi /user/:id, nên input phải là user_id
+    // Nếu anh muốn tìm theo stk hoặc phone thì backend phải có route riêng.
+   final res = await _getWithFallback('/user/search?keyword=$input');
+
+
+    if (res == null) {
+      _showErrorDialog('Không tìm được thông tin người nhận (lỗi kết nối).');
+      return false;
+    }
+
+    if (res.statusCode == 404) {
+      _showErrorDialog('Không tìm thấy tài khoản người nhận.');
+      return false;
+    }
+
+    if (res.statusCode != 200) {
+      _showErrorDialog('Lỗi khi tìm người nhận: ${res.statusCode}');
+      return false;
+    }
+
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map<String, dynamic>) {
+      _showErrorDialog('Dữ liệu người nhận không hợp lệ.');
+      return false;
+    }
+
+    setState(() {
+      _receiverName = decoded['username']?.toString();
+      _receiverStk = decoded['stk']?.toString() ?? input;
+    });
+
+    return true;
+  }
+
   // ===== Validation =====
   bool _isValidPhoneNumber(String phone) =>
       RegExp(r'^[0-9]{10}$').hasMatch(phone);
@@ -62,6 +240,7 @@ class _TransferScreenState extends State<TransferScreen> {
   bool _isValidAccountNumber(String account) =>
       RegExp(r'^[0-9]{8,15}$').hasMatch(account);
   bool _isValidATMCard(String card) => RegExp(r'^[0-9]{10}$').hasMatch(card);
+
   String? _validateAccountInput(String input, int transferType) {
     if (input.isEmpty) return 'Vui lòng nhập thông tin người nhận';
     switch (transferType) {
@@ -90,60 +269,90 @@ class _TransferScreenState extends State<TransferScreen> {
     final amount = double.tryParse(clean);
     if (amount == null || amount <= 0) return 'Số tiền không hợp lệ';
     if (amount < 1000) return 'Số tiền tối thiểu 1,000 VND';
-    if (amount > _currentUser.balance) return 'Số dư không đủ';
+    if (amount > _balance) return 'Số dư không đủ';
     return null;
   }
 
-  // ===== API call =====
+  // ===== API chuyển tiền -> POST /transactions (3 đường dẫn fallback) =====
   Future<void> _callTransferAPI(double amount) async {
-    try {
-      final response = await http.post(
-        Uri.parse(ApiConstants.baseUrl + ApiConstants.transfer),
-        headers: {
-          'Authorization': 'Bearer ${ApiClient.getToken()}',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'fromAccount': _currentUser.stk,
-          'toAccount': _accountController.text.trim(),
-          'amount': amount,
-          'content': _contentController.text,
-          'bank': _selectedBank,
-          'transferType': _selectedTransferType,
-          'currency': 'VND',
-        }),
-      );
+    if (_userId == null || _stk.isEmpty) {
+      _showErrorDialog('Không tìm thấy thông tin tài khoản nguồn.');
+      return;
+    }
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['success'] == true) {
-          // Update balance immutable
-          setState(() {
-            _currentUser = _currentUser.copyWith(
-              balance: _currentUser.balance - amount,
-            );
-          });
-          _showSuccessDialog(amount);
-          _clearForm();
-        } else {
-          _showErrorDialog(data['message'] ?? 'Chuyển tiền thất bại');
-        }
-      } else if (response.statusCode == 400) {
-        _showErrorDialog('Thông tin chuyển tiền không hợp lệ');
-      } else if (response.statusCode == 401) {
-        _showErrorDialog('Phiên đăng nhập hết hạn');
-      } else if (response.statusCode == 403) {
-        _showErrorDialog('Số dư không đủ để thực hiện giao dịch');
+   String transferMethod;
+switch (_selectedTransferType) {
+  case 0:
+    transferMethod = 'INTERNAL';     // giao dịch nội bộ TPBank
+    break;
+  case 1:
+    transferMethod = 'INTERBANK';    // chuyển liên ngân hàng
+    break;
+  case 2:
+  default:
+    transferMethod = 'ATM_CARD';     // qua thẻ ATM
+    break;
+}
+
+
+    String? toAccount;
+    String? toPhone;
+    String? toCardNumber;
+
+    final input = _accountController.text.trim();
+    if (_selectedTransferType == 0) {
+      if (_isValidPhoneNumber(input)) {
+        toPhone = input;
       } else {
-        _showErrorDialog('Lỗi server: ${response.statusCode}');
+        toAccount = input;
       }
-    } catch (e) {
-      _showErrorDialog('Lỗi kết nối: $e');
+    } else if (_selectedTransferType == 1) {
+      toAccount = input;
+    } else {
+      toCardNumber = input;
+    }
+
+    final body = {
+      'user_id': _userId,
+      'from_account': _stk,
+      'available_balance_before': _balance,
+      'transfer_method': transferMethod,
+      'to_account': toAccount,
+      'to_phone': toPhone,
+      'to_card_number': toCardNumber,
+      'bank_code': _selectedBank,
+      'amount': amount.toString().replaceAll(',', ''),
+      'transaction_type': 'TRANSFER',
+      'description': _contentController.text,
+      'status': 'SUCCESS',
+      'balance_after': _balance - amount,
+      'reference_code': null,
+      'qr_id': null,
+      'wallet_id': null,
+    };
+
+    final res = await _postWithFallback('/transactions', body);
+
+    if (res == null) {
+      _showErrorDialog('Không thể kết nối server. Vui lòng thử lại sau.');
+      return;
+    }
+
+    if (res.statusCode == 200 || res.statusCode == 201) {
+      setState(() {
+        _balance -= amount;
+      });
+      _showSuccessDialog(amount);
+     
+    } else if (res.statusCode == 400) {
+      _showErrorDialog('Thông tin chuyển tiền không hợp lệ');
+    } else {
+      _showErrorDialog('Lỗi server: ${res.statusCode}');
     }
   }
 
   // ===== Transfer =====
-  void _transferMoney() {
+  void _transferMoney() async {
     FocusScope.of(context).unfocus();
 
     final accountError = _validateAccountInput(
@@ -164,19 +373,54 @@ class _TransferScreenState extends State<TransferScreen> {
       return;
     }
 
+    // 🔹 TÌM NGƯỜI NHẬN TRƯỚC KHI XÁC NHẬN
+    setState(() => _isLoading = true);
+    final ok = await _fetchReceiverInfo();
+    setState(() => _isLoading = false);
+
+    if (!ok) return;
+
     final amount = double.parse(
-      _amountController.text.replaceAll(',', '').trim(),
-    );
-    _showConfirmDialog(amount);
+  _amountController.text.replaceAll(',', '').trim(),
+);
+
+// 🔥 Popup xác nhận thêm (popup số 1)
+showDialog(
+  context: context,
+  builder: (_) => AlertDialog(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    title: const Text("Xác nhận", style: TextStyle(color: Color(0xFF6A1B9A))),
+    content: Text("Bạn có chắc chắn muốn chuyển ${_formatCurrency(amount)} VND không?"),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text("HỦY"),
+      ),
+      ElevatedButton(
+        onPressed: () {
+          Navigator.pop(context); // đóng popup 1
+          _showConfirmDialog(amount); // hiện popup số 2 (chi tiết giao dịch)
+        },
+        style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF6A1B9A), foregroundColor: Colors.white),
+        child: const Text("TIẾP TỤC"),
+      ),
+    ],
+  ),
+);
+
   }
 
   // ===== Dialogs =====
   void _showConfirmDialog(double amount) {
+    final receiverText = _receiverName != null
+        ? '${_receiverName!} (${_receiverStk ?? _accountController.text})'
+        : _accountController.text;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
+        title: const Row(
           children: [
             Icon(Icons.help_outline, color: Color(0xFF6A1B9A)),
             SizedBox(width: 8),
@@ -189,7 +433,7 @@ class _TransferScreenState extends State<TransferScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildConfirmRow('Người nhận', _accountController.text),
+            _buildConfirmRow('Người nhận', receiverText),
             if (_selectedBank != null)
               _buildConfirmRow('Ngân hàng', _selectedBank!),
             _buildConfirmRow('Số tiền', '${_formatCurrency(amount)} VND'),
@@ -199,7 +443,7 @@ class _TransferScreenState extends State<TransferScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('HỦY', style: TextStyle(color: Colors.grey)),
+            child: const Text('HỦY', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             onPressed: _isLoading
@@ -211,10 +455,10 @@ class _TransferScreenState extends State<TransferScreen> {
                     setState(() => _isLoading = false);
                   },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFF6A1B9A),
+              backgroundColor: const Color(0xFF6A1B9A),
               foregroundColor: Colors.white,
             ),
-            child: Text('XÁC NHẬN'),
+            child: const Text('XÁC NHẬN'),
           ),
         ],
       ),
@@ -260,7 +504,9 @@ class _TransferScreenState extends State<TransferScreen> {
                     const SizedBox(height: 8),
                     _buildSuccessRow(
                       'Tới:',
-                      _accountController.text,
+                      _receiverName != null
+                          ? '${_receiverName!} (Số tài khoản: ${_receiverStk ?? _accountController.text})'
+                          : _accountController.text,
                       Colors.black87,
                     ),
                     const SizedBox(height: 8),
@@ -278,17 +524,18 @@ class _TransferScreenState extends State<TransferScreen> {
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
-                    Navigator.pop(context);
+                    Navigator.pop(context,true);
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF6A1B9A),
+                    backgroundColor: const Color(0xFF6A1B9A),
                     foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text('HOÀN TẤT', style: TextStyle(fontSize: 16)),
+                  child:
+                      const Text('HOÀN TẤT', style: TextStyle(fontSize: 16)),
                 ),
               ),
             ],
@@ -303,7 +550,7 @@ class _TransferScreenState extends State<TransferScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
+        title: const Row(
           children: [
             Icon(Icons.error_outline, color: Colors.red),
             SizedBox(width: 8),
@@ -314,7 +561,10 @@ class _TransferScreenState extends State<TransferScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('ĐÃ HIỂU', style: TextStyle(color: Color(0xFF6A1B9A))),
+            child: const Text(
+              'ĐÃ HIỂU',
+              style: TextStyle(color: Color(0xFF6A1B9A)),
+            ),
           ),
         ],
       ),
@@ -334,7 +584,10 @@ class _TransferScreenState extends State<TransferScreen> {
   void _clearForm() {
     _accountController.clear();
     _amountController.clear();
-    _contentController.text = '${_currentUser.name} chuyển tiền';
+    _receiverName = null;
+    _receiverStk = null;
+    _contentController.text =
+        _username.isNotEmpty ? '$_username chuyển tiền' : 'Chuyển tiền';
     _selectedBank = null;
     setState(() {
       _accountError = null;
@@ -346,39 +599,39 @@ class _TransferScreenState extends State<TransferScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFF8F9FA),
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Chuyển tiền',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
-        backgroundColor: Color(0xFF6D32D3),
+        backgroundColor: const Color(0xFF6D32D3),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
           IconButton(
             onPressed: _clearForm,
-            icon: Icon(Icons.refresh, color: Colors.white),
+            icon: const Icon(Icons.refresh, color: Colors.white),
           ),
         ],
       ),
       body: _isLoading
           ? _buildLoadingScreen()
           : SingleChildScrollView(
-              padding: EdgeInsets.all(20),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildAccountInfoCard(),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
                   _buildTransferTypeSection(),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
                   _buildTransferForm(),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
                   _buildScheduleButton(),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   _buildTransferButton(),
                 ],
               ),
@@ -387,9 +640,8 @@ class _TransferScreenState extends State<TransferScreen> {
   }
 
   Widget _buildLoadingScreen() =>
-      Center(child: CircularProgressIndicator(color: Color(0xFF6D32D3)));
+      const Center(child: CircularProgressIndicator(color: Color(0xFF6D32D3)));
 
-  // Các widget nhỏ giữ nguyên, chỉ cần thêm inline error text dưới TextField
   Widget _buildAccountField() {
     String labelText = '';
     String hintText = '';
@@ -412,8 +664,8 @@ class _TransferScreenState extends State<TransferScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(labelText, style: TextStyle(fontWeight: FontWeight.w500)),
-        SizedBox(height: 8),
+        Text(labelText, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
         TextField(
           controller: _accountController,
           keyboardType: TextInputType.number,
@@ -422,7 +674,8 @@ class _TransferScreenState extends State<TransferScreen> {
             filled: true,
             fillColor: Colors.grey[50],
             errorText: _accountError,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
       ],
@@ -430,119 +683,138 @@ class _TransferScreenState extends State<TransferScreen> {
   }
 
   Widget _buildAmountField() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('Số tiền', style: TextStyle(fontWeight: FontWeight.w500)),
-      SizedBox(height: 8),
-      TextField(
-        controller: _amountController,
-        keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        decoration: InputDecoration(
-          hintText: 'Nhập số tiền',
-          suffixText: 'VND',
-          filled: true,
-          fillColor: Colors.grey[50],
-          errorText: _amountError,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        onChanged: (value) {
-          final clean = value.replaceAll(',', '');
-          final num = int.tryParse(clean);
-          if (num != null) {
-            final formatted = _formatCurrency(num.toDouble());
-            _amountController.value = TextEditingValue(
-              text: formatted,
-              selection: TextSelection.collapsed(offset: formatted.length),
-            );
-          }
-        },
-      ),
-    ],
-  );
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Số tiền',
+              style: TextStyle(fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _amountController,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: InputDecoration(
+              hintText: 'Nhập số tiền',
+              suffixText: 'VND',
+              filled: true,
+              fillColor: Colors.grey[50],
+              errorText: _amountError,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onChanged: (value) {
+              final clean = value.replaceAll(',', '');
+              final num = int.tryParse(clean);
+              if (num != null) {
+                final formatted = _formatCurrency(num.toDouble());
+                _amountController.value = TextEditingValue(
+                  text: formatted,
+                  selection:
+                      TextSelection.collapsed(offset: formatted.length),
+                );
+              }
+            },
+          ),
+        ],
+      );
+
   Widget _buildTransferButton() => SizedBox(
-    width: double.infinity,
-    child: ElevatedButton(
-      onPressed: _isLoading ? null : _transferMoney,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Color(0xFF6D32D3),
-        foregroundColor: Colors.white,
-        padding: EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: Text(
-        'CHUYỂN TIỀN NGAY',
-        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-      ),
-    ),
-  );
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: _isLoading ? null : _transferMoney,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF6D32D3),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: const Text(
+            'CHUYỂN TIỀN NGAY',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
+      );
 
   Widget _buildConfirmRow(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      children: [
-        Expanded(flex: 2, child: Text('$label:')),
-        Expanded(
-          flex: 3,
-          child: Text(value, style: TextStyle(color: Colors.grey[700])),
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(flex: 2, child: Text('$label:')),
+            Expanded(
+              flex: 3,
+              child: Text(
+                value,
+                style: TextStyle(color: Colors.grey[700]),
+              ),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
   Widget _buildSuccessRow(String label, String value, Color color) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
-    child: Row(
-      children: [
-        Expanded(
-          flex: 2,
-          child: Text(label, style: TextStyle(fontWeight: FontWeight.w500)),
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: Text(
+                value,
+                style: TextStyle(color: color),
+              ),
+            ),
+          ],
         ),
-        Expanded(
-          flex: 3,
-          child: Text(value, style: TextStyle(color: color)),
-        ),
-      ],
-    ),
-  );
+      );
 
   Widget _buildAccountInfoCard() => Container(
-    width: double.infinity,
-    padding: EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        colors: [Color(0xFF7D4BD2), Color(0xFF6D32D3)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: [
-        BoxShadow(color: Colors.purple.withValues(alpha: 0.3), blurRadius: 10),
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'STK: 06437082701', // hiển thị STK trên số dư
-          style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w500),
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF7D4BD2), Color(0xFF6D32D3)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.purple.withValues(alpha: 0.3),
+              blurRadius: 10,
+            ),
+          ],
         ),
-        SizedBox(height: 8),
-        Text(
-          'Số dư khả dụng: ${_formatCurrency(_currentUser.balance)} VND',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'STK: ${_stk.isNotEmpty ? _stk : '---'}',
+              style: const TextStyle(
+                  color: Colors.white70, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Số dư khả dụng: ${_formatCurrency(_balance)} VND',
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
   Widget _buildTransferTypeSection() {
     return Row(
       children: [
         _buildTransferTypeButton(0, 'Trong TPBank', Icons.account_balance),
-        SizedBox(width: 12),
+        const SizedBox(width: 12),
         _buildTransferTypeButton(1, 'Liên Ngân Hàng', Icons.swap_horiz),
-        SizedBox(width: 12),
+        const SizedBox(width: 12),
         _buildTransferTypeButton(2, 'Qua Thẻ ATM', Icons.credit_card),
       ],
     );
@@ -554,20 +826,22 @@ class _TransferScreenState extends State<TransferScreen> {
       child: GestureDetector(
         onTap: () => setState(() => _selectedTransferType = type),
         child: AnimatedContainer(
-          duration: Duration(milliseconds: 200),
-          padding: EdgeInsets.symmetric(vertical: 12),
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? Color(0xFF6D32D3) : Colors.white,
+            color: isSelected ? const Color(0xFF6D32D3) : Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? Color(0xFF6D32D3) : Colors.grey[300]!,
+              color:
+                  isSelected ? const Color(0xFF6D32D3) : Colors.grey[300]!,
               width: 1.2,
             ),
           ),
           child: Column(
             children: [
-              Icon(icon, color: isSelected ? Colors.white : Colors.grey[600]),
-              SizedBox(height: 4),
+              Icon(icon,
+                  color: isSelected ? Colors.white : Colors.grey[600]),
+              const SizedBox(height: 4),
               Text(
                 text,
                 style: TextStyle(
@@ -584,56 +858,59 @@ class _TransferScreenState extends State<TransferScreen> {
   }
 
   Widget _buildTransferForm() => Column(
-    children: [
-      _buildAccountField(),
-      if (_selectedTransferType == 1)
-        Padding(
-          padding: const EdgeInsets.only(top: 16),
-          child: DropdownButtonFormField<String>(
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: Colors.grey[50],
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+        children: [
+          _buildAccountField(),
+          if (_selectedTransferType == 1)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: DropdownButtonFormField<String>(
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: Colors.grey[50],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                hint: const Text('Chọn ngân hàng'),
+                value: _selectedBank,
+                items: _banks
+                    .map((e) =>
+                        DropdownMenuItem(value: e, child: Text(e)))
+                    .toList(),
+                onChanged: (v) => setState(() => _selectedBank = v),
               ),
             ),
-            hint: Text('Chọn ngân hàng'),
-            value: _selectedBank,
-            items: _banks
-                .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                .toList(),
-            onChanged: (v) => setState(() => _selectedBank = v),
+          const SizedBox(height: 16),
+          _buildAmountField(),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _contentController,
+            decoration: InputDecoration(
+              labelText: 'Nội dung chuyển tiền',
+              filled: true,
+              fillColor: Colors.grey[50],
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
           ),
-        ),
-      SizedBox(height: 16),
-      _buildAmountField(),
-      SizedBox(height: 16),
-      TextField(
-        controller: _contentController,
-        decoration: InputDecoration(
-          labelText: 'Nội dung chuyển tiền',
-          filled: true,
-          fillColor: Colors.grey[50],
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      ),
-    ],
-  );
+        ],
+      );
 
   Widget _buildScheduleButton() => SizedBox(
-    width: double.infinity,
-    child: OutlinedButton.icon(
-      onPressed: () {},
-      icon: Icon(Icons.schedule, color: Color(0xFF6D32D3)),
-      label: Text(
-        'Lên lịch chuyển tiền',
-        style: TextStyle(color: Color(0xFF6D32D3)),
-      ),
-      style: OutlinedButton.styleFrom(
-        side: BorderSide(color: Color(0xFF6D32D3)),
-        padding: EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    ),
-  );
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: () {},
+          icon: const Icon(Icons.schedule, color: Color(0xFF6D32D3)),
+          label: const Text(
+            'Lên lịch chuyển tiền',
+            style: TextStyle(color: Color(0xFF6D32D3)),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: Color(0xFF6D32D3)),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+      );
 }

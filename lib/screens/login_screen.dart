@@ -1,14 +1,8 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:tp_bank/core/services/auth_service.dart';
-import 'package:tp_bank/core/network/api_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:tp_bank/core/models/user_model.dart';
-import 'package:tp_bank/screens/home_screen.dart'; // Import class User
-// Import HomeScreen - điều chỉnh đường dẫn cho đúng
+import 'package:tp_bank/screens/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -24,25 +18,70 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
+  // 🔥 3 URL ưu tiên
+  final List<String> apiUrls = [
+    "https://df4b91vt-4000.asse.devtunnels.ms", // devTunnel
+    "http://10.0.2.2:4000",                    // Android emulator
+    "http://localhost:4000"                     // PC / Web
+  ];
+
+  /// 🔥 Hàm login thử từng URL
+  Future<http.Response?> _tryLogin(String phone, String password) async {
+    for (String base in apiUrls) {
+      final url = Uri.parse("$base/login");
+
+      try {
+        final response = await http.post(
+          url,
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({"phone": phone, "password": password}),
+        );
+
+        debugPrint("🔍 Thử URL: $url → ${response.statusCode}");
+
+        // Nếu chạy thành công → return ngay
+        if (response.statusCode == 200 || response.statusCode == 401) {
+          return response;
+        }
+      } catch (e) {
+        debugPrint("❌ URL lỗi: $base → $e");
+      }
+    }
+
+    return null;
+  }
+
   Future<void> _login() async {
-   final url = Uri.parse("http://localhost:4000/login");
-    final response = await http.post(
-    url,
-    headers: {"Content-Type": "application/json"},
-    body: jsonEncode({
-      "phone": _phoneController.text,
-      "password": _passwordController.text
-    }),
-  );
+    if (_phoneController.text.isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Vui lòng nhập đầy đủ thông tin")),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    final response = await _tryLogin(
+      _phoneController.text.trim(),
+      _passwordController.text.trim(),
+    );
+
+    setState(() => _isLoading = false);
+
+    if (response == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Không thể kết nối server")),
+      );
+      return;
+    }
+
     final data = jsonDecode(response.body);
 
-     if (response.statusCode == 200) {
-      // ✅ Lưu token
+    if (response.statusCode == 200) {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString("token", data["token"]);
-       await prefs.setInt("user_id", data["user"]["id"]);
+      await prefs.setInt("user_id", data["user"]["id"]);
 
-      // ✅ Chuyển sang Home
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -54,50 +93,24 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _navigateToHome(User user) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => HomeScreen(), // THAY HomeScreen CỦA BẠN
-      ),
-    );
-  }
-
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Thông báo'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color.fromARGB(255, 109, 50, 211),
+      backgroundColor: const Color.fromARGB(255, 109, 50, 211),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
             children: [
-              // HEADER (giữ nguyên như trước)
+              // HEADER giữ nguyên
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
-                decoration: const BoxDecoration(
-                  color: Color.fromARGB(255, 109, 50, 211),
-                ),
+                decoration:
+                    const BoxDecoration(color: Color.fromARGB(255, 109, 50, 211)),
                 child: Column(
-                  children: [
-                    const SizedBox(height: 40),
-                    const Text(
+                  children: const [
+                    SizedBox(height: 40),
+                    Text(
                       'TPBank',
                       style: TextStyle(
                         color: Colors.white,
@@ -105,13 +118,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    const Text(
+                    SizedBox(height: 20),
+                    Text(
                       'Chúc bạn một ngày tốt lành',
                       style: TextStyle(color: Colors.white70, fontSize: 16),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
+                    SizedBox(height: 8),
+                    Text(
                       'TRẦN TUẤN TRIỆU',
                       style: TextStyle(
                         color: Colors.white,
@@ -119,23 +132,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 40),
+                    SizedBox(height: 40),
                   ],
                 ),
               ),
 
-              // FORM ĐĂNG NHẬP
+              // LOGIN FORM giữ nguyên
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(24),
                 decoration: const BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(24),
-                    topRight: Radius.circular(24),
-                    bottomRight: Radius.circular(24),
-                    bottomLeft: Radius.circular(24),
-                  ),
+                  borderRadius: BorderRadius.all(Radius.circular(24)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,39 +158,34 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 30),
 
-                    // Số điện thoại
+                    // PHONE
                     TextField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
                       decoration: InputDecoration(
                         labelText: 'Số điện thoại',
-                        labelStyle: TextStyle(color: Colors.grey[600]),
-                        prefixIcon: Icon(Icons.phone, color: Color(0xFF7E57C2)),
+                        prefixIcon:
+                            const Icon(Icons.phone, color: Color(0xFF7E57C2)),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Color(0xFF7E57C2)),
                         ),
                       ),
                     ),
                     const SizedBox(height: 20),
 
-                    // Mật khẩu
+                    // PASSWORD
                     TextField(
                       controller: _passwordController,
                       obscureText: _obscurePassword,
                       decoration: InputDecoration(
                         labelText: 'Mật khẩu',
-                        labelStyle: TextStyle(color: Colors.grey[600]),
-                        prefixIcon: Icon(Icons.lock, color: Color(0xFF7E57C2)),
+                        prefixIcon:
+                            const Icon(Icons.lock, color: Color(0xFF7E57C2)),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
                                 ? Icons.visibility
                                 : Icons.visibility_off,
-                            color: Colors.grey,
                           ),
                           onPressed: () {
                             setState(() {
@@ -193,37 +196,26 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Color(0xFF7E57C2)),
-                        ),
                       ),
                     ),
                     const SizedBox(height: 30),
 
-                    // Nút đăng nhập
+                    // LOGIN BUTTON
                     SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
                         onPressed: _isLoading ? null : _login,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Color.fromARGB(255, 125, 75, 210),
+                          backgroundColor:
+                              const Color.fromARGB(255, 125, 75, 210),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
+                            ? const CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white)
                             : const Text(
                                 'ĐĂNG NHẬP',
                                 style: TextStyle(
@@ -234,8 +226,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                       ),
                     ),
-
-                    // ... (PHẦN CÒN LẠI GIỮ NGUYÊN)
                   ],
                 ),
               ),

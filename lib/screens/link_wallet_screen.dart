@@ -1,13 +1,20 @@
+// lib/screens/link_wallet_screen.dart
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 class LinkWalletScreen extends StatefulWidget {
+  int walletId;
   String walletName;
   String walletLogo;
 
   LinkWalletScreen({
     super.key,
+    required this.walletId,
     required this.walletName,
     required this.walletLogo,
   });
@@ -18,19 +25,30 @@ class LinkWalletScreen extends StatefulWidget {
 
 class _LinkWalletScreenState extends State<LinkWalletScreen> {
   final TextEditingController _phoneController = TextEditingController();
-  final List<Map<String, String>> wallet = [
-    {'name': 'Momo', 'logo': 'assets/momo.png'},
-    {'name': 'ZaloPay', 'logo': 'assets/zalo.png'},
-    {'name': 'FPTPay', 'logo': 'assets/fpt.png'},
-    {'name': 'GHTKPay', 'logo': 'assets/ghtk.png'},
-    {'name': 'Payoo', 'logo': 'assets/payoo.png'},
-    {'name': 'ShopeePay', 'logo': 'assets/shopeepay.png'},
-    {'name': 'Payme', 'logo': 'assets/payme.png'},
-    {'name': 'VNPay', 'logo': 'assets/vnpay.png'},
-    {'name': 'SenPay', 'logo': 'assets/senpay.png'},
-    {'name': 'VNPT', 'logo': 'assets/vnpt.png'},
-    {'name': 'VTCPay', 'logo': 'assets/vtc.png'},
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  // base URL giống login/home
+  final List<String> apiUrls = const [
+    "https://df4b91vt-4000.asse.devtunnels.ms",
+    "http://10.0.2.2:4000",
+    "http://localhost:4000",
   ];
+
+  final List<Map<String, dynamic>> wallets = const [
+    {'id': 1, 'name': 'Momo', 'logo': 'assets/momo.png'},
+    {'id': 2, 'name': 'ZaloPay', 'logo': 'assets/zalo.png'},
+    {'id': 3, 'name': 'FPTPay', 'logo': 'assets/fpt.png'},
+    {'id': 4, 'name': 'GHTKPay', 'logo': 'assets/ghtk.png'},
+    {'id': 5, 'name': 'Payoo', 'logo': 'assets/payoo.png'},
+    {'id': 6, 'name': 'ShopeePay', 'logo': 'assets/shopeepay.png'},
+    {'id': 7, 'name': 'Payme', 'logo': 'assets/payme.png'},
+    {'id': 8, 'name': 'VNPay', 'logo': 'assets/vnpay.png'},
+    {'id': 9, 'name': 'SenPay', 'logo': 'assets/senpay.png'},
+    {'id': 10, 'name': 'VNPT', 'logo': 'assets/vnpt.png'},
+    {'id': 11, 'name': 'VTCPay', 'logo': 'assets/vtc.png'},
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -39,16 +57,17 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
     });
   }
 
+  // ================== chọn ví khác ==================
   void _showWalletSelector() {
     showModalBottomSheet(
       context: context,
-      shape: RoundedRectangleBorder(
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           Container(
             width: 40,
             height: 4,
@@ -57,24 +76,25 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          SizedBox(height: 10),
-          Text(
+          const SizedBox(height: 10),
+          const Text(
             'Chọn ví điện tử',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           Expanded(
             child: ListView.builder(
-              itemCount: wallet.length,
+              itemCount: wallets.length,
               itemBuilder: (context, index) {
-                final item = wallet[index];
+                final item = wallets[index];
                 return ListTile(
-                  leading: Image.asset(item['logo']!, width: 36),
-                  title: Text(item['name']!),
+                  leading: Image.asset(item['logo'] as String, width: 36),
+                  title: Text(item['name'] as String),
                   onTap: () {
                     setState(() {
-                      widget.walletName = item['name']!;
-                      widget.walletLogo = item['logo']!;
+                      widget.walletId = item['id'] as int;
+                      widget.walletName = item['name'] as String;
+                      widget.walletLogo = item['logo'] as String;
                     });
                     Navigator.pop(context);
                   },
@@ -87,14 +107,104 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
     );
   }
 
+  // ================== GỌI API POST /userwallet ==================
+  Future<void> _submitLinkWallet() async {
+    final phone = _phoneController.text.trim();
+    if (phone.length != 10) return;
+
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final int? userId = prefs.getInt("user_id");
+
+      if (userId == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Không tìm thấy user_id, vui lòng đăng nhập lại.";
+        });
+        return;
+      }
+
+      final body = {
+        "user_id": userId,
+        "wallet_id": widget.walletId,
+        "linked_phone": phone,
+        "account_name": null,
+        "status": "LINKED",
+      };
+
+      http.Response? res;
+      for (final base in apiUrls) {
+        try {
+          final uri = Uri.parse("$base/userwallet");
+          final r = await http
+              .post(
+                uri,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(body),
+              )
+              .timeout(const Duration(seconds: 8));
+          debugPrint("POST $uri → ${r.statusCode} ${r.body}");
+          if (r.statusCode == 201) {
+            res = r;
+            break;
+          } else {
+            // lưu response cuối cùng để show lỗi, nhưng vẫn thử base khác
+            res = r;
+          }
+        } catch (e) {
+          debugPrint("POST /userwallet error with base: $e");
+        }
+      }
+
+      if (res == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Không thể kết nối server.";
+        });
+        return;
+      }
+
+      if (res.statusCode != 201) {
+        String msg = "Lỗi liên kết ví: ${res.statusCode}";
+        try {
+          final data = jsonDecode(res.body);
+          if (data["message"] != null) msg = data["message"];
+        } catch (_) {}
+        setState(() {
+          _isLoading = false;
+          _errorMessage = msg;
+        });
+        return;
+      }
+
+      // Thành công: pop về WalletScreen + báo true để reload
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = "Lỗi: $e";
+      });
+    }
+  }
+
+  // ================== UI ==================
   @override
   Widget build(BuildContext context) {
+    final isPhoneValid = _phoneController.text.length == 10;
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        iconTheme: IconThemeData(color: Colors.white),
-        backgroundColor: Color.fromARGB(255, 109, 50, 211),
-        title: Text(
+        iconTheme: const IconThemeData(color: Colors.white),
+        backgroundColor: const Color.fromARGB(255, 109, 50, 211),
+        title: const Text(
           'Thêm Liên Kết Ví',
           style: TextStyle(color: Colors.white, fontSize: 18),
         ),
@@ -105,6 +215,7 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Nguồn tiền (mock giống code cũ)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -114,10 +225,10 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
               child: Row(
                 children: [
                   Image.asset('assets/tpbanklogo.png', width: 40),
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                    children: const [
                       Text(
                         'Nguồn Tiền',
                         style: TextStyle(fontSize: 14, color: Colors.black54),
@@ -157,7 +268,7 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 29),
               child: Column(
-                children: [
+                children: const [
                   Icon(
                     FontAwesomeIcons.chevronDown,
                     size: 10,
@@ -177,6 +288,7 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
               ),
             ),
 
+            // Thông tin ví
             InkWell(
               onTap: _showWalletSelector,
               child: Container(
@@ -188,26 +300,27 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
                 child: Row(
                   children: [
                     Image.asset(widget.walletLogo, width: 40),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'Ví điện tử',
-                          style: TextStyle(fontSize: 14, color: Colors.black54),
+                          style:
+                              TextStyle(fontSize: 14, color: Colors.black54),
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
                           widget.walletName,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                       ],
                     ),
-                    SizedBox(width: 250),
-                    Icon(
+                    const Spacer(),
+                    const Icon(
                       FontAwesomeIcons.chevronRight,
                       size: 18,
                       color: Color.fromARGB(255, 109, 50, 211),
@@ -216,9 +329,12 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
                 ),
               ),
             ),
-            SizedBox(height: 10),
-            Text('THÔNG TIN VÍ', style: TextStyle(fontWeight: FontWeight.w500)),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
+            const Text(
+              'THÔNG TIN VÍ',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 10),
             TextField(
               controller: _phoneController,
               keyboardType: TextInputType.number,
@@ -226,58 +342,63 @@ class _LinkWalletScreenState extends State<LinkWalletScreen> {
               decoration: InputDecoration(
                 labelText: 'Số điện thoại liên kết ví',
                 hintText: 'Nhập số điện thoại liên kết ví',
-                prefixIcon: Icon(
+                prefixIcon: const Icon(
                   FontAwesomeIcons.phone,
                   color: Color.fromARGB(255, 109, 50, 211),
                   size: 16,
                 ),
                 errorText: _phoneController.text.isEmpty
                     ? null
-                    : (_phoneController.text.length != 10
-                          ? 'Số điện thoại phải đủ 10 số'
-                          : null),
+                    : (!isPhoneValid ? 'Số điện thoại phải đủ 10 số' : null),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
+                  borderSide: const BorderSide(
                     color: Color.fromARGB(255, 109, 50, 211),
                   ),
                 ),
               ),
             ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.red),
+              ),
+            ],
           ],
         ),
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(16),
         child: ElevatedButton(
-          onPressed: _phoneController.text.length == 10
-              ? () {
-                  final linkedWallet = {
-                    'name': widget.walletName,
-                    'logo': widget.walletLogo,
-                    'phone': _phoneController.text,
-                  };
-                  Navigator.pop(context, linkedWallet);
-                }
-              : null,
+          onPressed: (!isPhoneValid || _isLoading) ? null : _submitLinkWallet,
           style: ElevatedButton.styleFrom(
-            backgroundColor: Color.fromARGB(255, 109, 50, 211),
+            backgroundColor: const Color.fromARGB(255, 109, 50, 211),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            padding: EdgeInsets.symmetric(vertical: 16),
+            padding: const EdgeInsets.symmetric(vertical: 16),
           ),
-          child: Text(
-            'Tiếp tục',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          child: _isLoading
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text(
+                  'Tiếp tục',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
         ),
       ),
     );
