@@ -123,16 +123,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       'Chúc bạn một ngày tốt lành',
                       style: TextStyle(color: Colors.white70, fontSize: 16),
                     ),
-                    SizedBox(height: 8),
-                    Text(
-                      'TRẦN TUẤN TRIỆU',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(height: 40),
+                    
+                   
+                    SizedBox(height: 35),
                   ],
                 ),
               ),

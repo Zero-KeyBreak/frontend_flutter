@@ -102,7 +102,10 @@ class _HomeScreenState extends State<HomeScreen> {
     'icon': Icons.help,
     'label': 'Thông tin TK',
     'onTap': (BuildContext context) {
-      // TODO: mở màn Thông tin tài khoản
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => InfoAccountScreen()),
+      );
     },
   },
 ];
@@ -243,10 +246,17 @@ class _HomeScreenState extends State<HomeScreen> {
               ListTile(
                 leading: Icon(Icons.wifi, color: const Color(0xFF7E57C2)),
                 title: Text('Data 3G/4G'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => WifiScreen()));
-                },
+                onTap: () async {
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => const WifiScreen()),
+  );
+
+  if (result == true) {
+     fetchUser(); // hàm đã có ở Home để reload số dư
+  }
+}
+
               ),
             ],
           ),
@@ -429,9 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          actions: [
-            IconButton(icon: Icon(Icons.search, color: Colors.white), onPressed: () {}),
-          ],
+          
         ),
         body: _buildHomeContent(),
       ),

@@ -1,15 +1,19 @@
+// lib/screens/card_screen.dart
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:tp_bank/screens/add_2in1_card_sceen.dart';
-import 'package:tp_bank/screens/add_credit_card_screen.dart';
-import 'package:tp_bank/screens/card_detail_screen.dart';
+import 'package:http/http.dart' as http;
+
+import 'add_2in1_card_sceen.dart';
+import 'add_credit_card_screen.dart';
+import 'card_detail_screen.dart';
 
 class CardScreen extends StatefulWidget {
-  final List<Map<String, String>> cards;
-
   const CardScreen({super.key, required this.cards});
+
+  final List<Map<String, String>> cards;
 
   @override
   State<CardScreen> createState() => _CardScreenState();
@@ -17,33 +21,139 @@ class CardScreen extends StatefulWidget {
 
 class _CardScreenState extends State<CardScreen> {
   List<Map<String, String>> _cards = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  final List<String> apiUrls = const [
+    "https://df4b91vt-4000.asse.devtunnels.ms",
+    "http://10.0.2.2:4000",
+    "http://localhost:4000",
+  ];
 
   @override
   void initState() {
     super.initState();
-    // ✅ Hiển thị trước dữ liệu mặc định
     _cards = widget.cards;
-    // ✅ Load dữ liệu thật ở nền (không chặn UI)
-    _loadCards();
+    _loadCardsFromApi();
   }
 
-  Future<void> _loadCards() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString('cards');
-    if (stored != null) {
-      final List decoded = jsonDecode(stored);
+  Future<void> _loadCardsFromApi() async {
+    try {
       setState(() {
-        _cards = decoded.map((e) => Map<String, String>.from(e)).toList();
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt('user_id');
+
+      if (userId == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Không tìm thấy user_id. Vui lòng đăng nhập lại.';
+        });
+        return;
+      }
+
+      http.Response? res;
+
+      for (final base in apiUrls) {
+        try {
+          final uri = Uri.parse('$base/card?user_id=$userId');
+          res = await http.get(uri).timeout(const Duration(seconds: 8));
+          debugPrint('GET $uri → ${res.statusCode}');
+          if (res.statusCode == 200) break;
+        } catch (e) {
+          debugPrint('GET /card error with $base: $e');
+        }
+      }
+
+      if (res == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Không thể kết nối server.';
+        });
+        return;
+      }
+
+      if (res.statusCode != 200) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Lỗi server: ${res?.statusCode}';
+        });
+        return;
+      }
+
+      final decoded = jsonDecode(res.body);
+      if (decoded is! List) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Dữ liệu /card không hợp lệ.';
+        });
+        return;
+      }
+
+      final List<Map<String, String>> loaded = [];
+      for (final row in decoded) {
+        final mapRow = Map<String, dynamic>.from(row);
+
+        final String cardType = '${mapRow['card_type'] ?? ''}';
+final String numberCard = '${mapRow['number_card'] ?? ''}';
+final String expiry = '${mapRow['expiry_date'] ?? ''}';
+
+String name = 'Thẻ TPBank';
+String image = (mapRow['image'] ?? '') as String;
+
+// nếu DB có image => dùng luôn
+if (image.isNotEmpty) {
+  // đặt name đẹp theo type (tuỳ thích)
+  if (cardType == 'Credit') {
+    name = 'Thẻ tín dụng TPBank';
+  } else if (cardType == 'Debit') {
+    name = 'Thẻ ghi nợ TPBank';
+  } else if (cardType == 'ATM') {
+    name = 'Thẻ ATM TPBank';
+  }
+} else {
+  // fallback khi image = NULL (dữ liệu cũ)
+  if (cardType == 'Credit') {
+    name = 'Thẻ tín dụng TPBank';
+    image = 'assets/credit_card_1.png';
+  } else if (cardType == 'ATM') {
+    name = 'Thẻ ATM TPBank';
+    image = 'assets/atm_card.png';
+  } else if (cardType == 'Debit') {
+    name = 'Thẻ ghi nợ TPBank';
+    image = 'assets/ca_2in1_card.png';
+  }
+}
+
+   loaded.add({
+  'name': name,
+  'status': 'Đang hoạt động',
+  'image': image,
+  'type': cardType,
+  'number': numberCard,
+  'expiry': expiry,
+});
+
+      }
+
+      setState(() {
+        _cards = loaded;
+        _isLoading = false;
+      });
+
+      await prefs.setString('cards', jsonEncode(_cards));
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Lỗi load thẻ: $e';
       });
     }
   }
 
-  Future<void> _saveCards() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('cards', jsonEncode(_cards));
-  }
-
-  void _navigateToAddCard() async {
+  void _navigateToAddCard() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -72,6 +182,8 @@ class _CardScreenState extends State<CardScreen> {
     ];
 
     return Padding(
+      // UI giữ nguyên như code của Đại Ka
+      // ...
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -112,34 +224,23 @@ class _CardScreenState extends State<CardScreen> {
                 }
 
                 if (newCard != null) {
-                  final exists = _cards.any(
-                    (c) => c['name'] == newCard['name'],
+                  setState(() {
+                    _cards.add(Map<String, String>.from(newCard));
+                  });
+
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setString('cards', jsonEncode(_cards));
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content:
+                          Text('Thêm thẻ "${newCard['name']}" thành công!'),
+                      backgroundColor: Colors.green,
+                    ),
                   );
-                  if (exists) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Bạn đã có thẻ "${newCard['name']}" rồi!',
-                        ),
-                        backgroundColor: Colors.orangeAccent,
-                      ),
-                    );
-                  } else {
-                    setState(() {
-                      _cards.add(Map<String, String>.from(newCard));
-                    });
-                    _saveCards();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Thêm thẻ "${newCard['name']}" thành công!',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
                 }
               },
+              // ... phần container như cũ
               child: Container(
                 margin: const EdgeInsets.only(bottom: 14),
                 padding: const EdgeInsets.all(14),
@@ -187,7 +288,6 @@ class _CardScreenState extends State<CardScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
         ],
       ),
     );
@@ -208,9 +308,12 @@ class _CardScreenState extends State<CardScreen> {
         final index = _cards.indexWhere(
           (c) => c['name'] == updatedCard['name'],
         );
-        if (index != -1) _cards[index] = updatedCard;
+        if (index != -1) {
+          _cards[index] = Map<String, String>.from(updatedCard);
+        }
       });
-      _saveCards();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cards', jsonEncode(_cards));
     }
   }
 
@@ -237,135 +340,151 @@ class _CardScreenState extends State<CardScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
       ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 25),
-            const Text(
-              'Thẻ của tôi',
-              style: TextStyle(fontWeight: FontWeight.w500, fontSize: 20),
-            ),
-            const SizedBox(height: 15),
-            Expanded(
-              child: _cards.isEmpty
-                  ? const Center(child: Text('Chưa có thẻ nào'))
-                  : ListView.builder(
-                      itemCount: _cards.length,
-                      itemBuilder: (context, index) {
-                        final card = _cards[index];
-                        final isActive = card['status'] == 'Đang hoạt động';
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(child: Text(_errorMessage!))
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 25),
+                      const Text(
+                        'Thẻ của tôi',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w500, fontSize: 20),
+                      ),
+                      const SizedBox(height: 15),
+                      Expanded(
+                        child: _cards.isEmpty
+                            ? const Center(child: Text('Chưa có thẻ nào'))
+                            : ListView.builder(
+                                itemCount: _cards.length,
+                                itemBuilder: (context, index) {
+                                  final card = _cards[index];
+                                  final isActive =
+                                      card['status'] == 'Đang hoạt động';
 
-                        return GestureDetector(
-                          onTap: () => _navigateToCardDetail(card),
-                          child: Hero(
-                            tag: card['name']!,
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color.fromARGB(255, 238, 230, 251),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Image.asset(
-                                      card['image']!,
-                                      width: 120,
-                                      height: 80,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          card['name']!,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
+                                  return GestureDetector(
+                                    onTap: () => _navigateToCardDetail(card),
+                                    child: Hero(
+                                      tag: card['name']!,
+                                      child: Container(
+                                        margin:
+                                            const EdgeInsets.only(bottom: 16),
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: const Color.fromARGB(
+                                              255, 238, 230, 251),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
                                         ),
-                                        const SizedBox(height: 4),
-                                        Row(
+                                        child: Row(
                                           children: [
-                                            Icon(
-                                              isActive
-                                                  ? Icons.check_circle
-                                                  : Icons.lock,
-                                              color: isActive
-                                                  ? Colors.green
-                                                  : Colors.redAccent,
-                                              size: 16,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              card['status']!,
-                                              style: TextStyle(
-                                                color: isActive
-                                                    ? Colors.green
-                                                    : Colors.redAccent,
-                                                fontSize: 14,
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              child: Image.asset(
+                                                card['image']!,
+                                                width: 120,
+                                                height: 80,
+                                                fit: BoxFit.cover,
                                               ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    card['name']!,
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 16,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Row(
+                                                    children: [
+                                                      Icon(
+                                                        isActive
+                                                            ? Icons
+                                                                .check_circle
+                                                            : Icons.lock,
+                                                        color: isActive
+                                                            ? Colors.green
+                                                            : Colors
+                                                                .redAccent,
+                                                        size: 16,
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        card['status']!,
+                                                        style: TextStyle(
+                                                          color: isActive
+                                                              ? Colors.green
+                                                              : Colors
+                                                                  .redAccent,
+                                                          fontSize: 14,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const Icon(
+                                              Icons.chevron_right,
+                                              color: Color.fromARGB(
+                                                  255, 121, 29, 234),
+                                              size: 32,
                                             ),
                                           ],
                                         ),
-                                      ],
+                                      ),
                                     ),
+                                  );
+                                },
+                              ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: Center(
+                          child: GestureDetector(
+                            onTap: _navigateToAddCard,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color.fromARGB(255, 115, 41, 242),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              height: 45,
+                              width: 200,
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    FontAwesomeIcons.plus,
+                                    size: 18,
+                                    color: Colors.white,
                                   ),
-                                  const Icon(
-                                    Icons.chevron_right,
-                                    color: Color.fromARGB(255, 121, 29, 234),
-                                    size: 32,
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'Mở thêm thẻ',
+                                    style: TextStyle(
+                                        fontSize: 16, color: Colors.white),
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                        );
-                      },
-                    ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 20),
-              child: Center(
-                child: GestureDetector(
-                  onTap: _navigateToAddCard,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color.fromARGB(255, 115, 41, 242),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    height: 45,
-                    width: 200,
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          FontAwesomeIcons.plus,
-                          size: 18,
-                          color: Colors.white,
                         ),
-                        SizedBox(width: 10),
-                        Text(
-                          'Mở thêm thẻ',
-                          style: TextStyle(fontSize: 16, color: Colors.white),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

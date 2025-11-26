@@ -88,7 +88,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final data = jsonDecode(response.body);
       List<dynamic> rows = data["transactions"] ?? [];
 
-      // ========= FIX LOADING CRASH =========
       transactions = rows.map((e) {
         return TransactionModel(
           id: e["id"].toString(),
@@ -96,7 +95,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           description: e["description"] ?? "",
           amount: double.tryParse("${e["amount"]}") ?? 0.0,
           balance: double.tryParse("${e["balance"]}") ?? 0.0,
-          type: e["type"] ?? "",
+          type: e["type"] ?? "", // ví dụ: TRANSFER_IN, TRANSFER_OUT, TOPUP_DATA,...
         );
       }).toList();
 
@@ -157,10 +156,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       const SizedBox(height: 16),
-                      ...dates.map((d) => _buildDateSection(
-                            DateTime.parse(d),
-                            grouped[d]!,
-                          )),
+                      ...dates.map(
+                        (d) => _buildDateSection(
+                          DateTime.parse(d),
+                          grouped[d]!,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -189,56 +190,104 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildTransactionItem(TransactionModel t) {
-  return Container(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    decoration: BoxDecoration(
-      border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
-    ),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        // LEFT
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              t.description,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
+    final bool isIncome = t.amount > 0; // tiền vào
+    final bool isTransferIn = t.type == 'TRANSFER_IN'; 
+    // bạn chỉnh lại chuỗi 'TRANSFER_IN' đúng với backend
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // LEFT
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Mô tả giao dịch
+                Text(
+                  t.description,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+
+                const SizedBox(height: 4),
+
+                // Nếu là tiền vào do người khác chuyển → hiện chip / label
+                if (isTransferIn && isIncome) ...[
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.arrow_downward,
+                        size: 14,
+                        color: Colors.green,
+                      ),
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          "Tiền vào từ người khác",
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                ],
+
+                // Thời gian
+                Text(
+                  "Lúc: ${DateFormat('HH:mm:ss').format(t.date)}",
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+
+                const SizedBox(height: 2),
+
+                // Số dư sau giao dịch
+                Text(
+                  "SD: ${formatCurrency(t.balance)}",
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
             ),
-
-            const SizedBox(height: 4),
-
-            // ⭐ HIỂN THỊ THỜI GIAN GIAO DỊCH
-            Text(
-              "Lúc: ${DateFormat('HH:mm:ss').format(t.date)}",
-              style: const TextStyle(color: Colors.grey),
-            ),
-
-            const SizedBox(height: 2),
-
-            Text(
-              "SD: ${formatCurrency(t.balance)}",
-              style: const TextStyle(color: Colors.grey),
-            ),
-          ],
-        ),
-
-        // RIGHT
-        Text(
-          "${t.amount < 0 ? "-" : "+"}${formatCurrency(t.amount)}",
-          style: TextStyle(
-            color: t.amount < 0 ? Colors.red : Colors.green,
-            fontWeight: FontWeight.bold,
           ),
-        ),
-      ],
-    ),
-  );
-}
 
+          // RIGHT – Số tiền
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+  "${t.amount < 0 ? "-" : "+"}${formatCurrency(t.amount)}",
+  style: TextStyle(
+    fontSize: 15,
+    color: t.amount < 0 ? Colors.red : Colors.green,
+    fontWeight: FontWeight.bold,
+  ),
+),
+
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ====================================================

@@ -1,9 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
+
 import 'package:ai_barcode_scanner/ai_barcode_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
@@ -12,8 +16,20 @@ class QRScannerScreen extends StatefulWidget {
   State<QRScannerScreen> createState() => _QRScannerScreenState();
 }
 
-class _QRScannerScreenState extends State<QRScannerScreen> {
-  /// 📸 Hàm quét QR từ ảnh trong gallery
+class _QRScannerScreenState extends State<QRScannerScreen>
+    with SingleTickerProviderStateMixin {
+  final List<String> apiUrls = const [
+    "https://df4b91vt-4000.asse.devtunnels.ms",
+    "http://10.0.2.2:4000",
+    "http://localhost:4000",
+  ];
+
+  bool _isProcessing = false;
+  bool _hasHandledCamera = false;
+
+  /// =========================================
+  /// QUÉT TỪ ẢNH TRONG GALLERY
+  /// =========================================
   Future<void> _scanFromGallery() async {
     try {
       final picker = ImagePicker();
@@ -22,14 +38,13 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
       final inputImage = InputImage.fromFile(File(pickedFile.path));
       final barcodeScanner = BarcodeScanner();
-
       final barcodes = await barcodeScanner.processImage(inputImage);
       await barcodeScanner.close();
 
       if (barcodes.isNotEmpty) {
         final qrValue = barcodes.first.rawValue;
         if (qrValue != null && mounted) {
-          Navigator.pop(context, qrValue);
+          await _handleQrValue(qrValue);
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -37,9 +52,150 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Lỗi khi quét ảnh: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi khi quét ảnh: $e')),
+      );
+    }
+  }
+
+  /// =========================================
+  /// XỬ LÝ CHUỖI QR → GỌI API /transactions
+  /// =========================================
+  Future<void> _handleQrValue(String qrValue) async {
+    if (_isProcessing) return; // chặn double-call
+    _isProcessing = true;
+
+    try {
+      // Parse JSON từ QR
+      Map<String, dynamic> payload;
+      try {
+        payload = jsonDecode(qrValue);
+      } catch (_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mã QR không đúng định dạng TPBank QR'),
+          ),
+        );
+        _isProcessing = false;
+        return;
+      }
+
+      final toAccount = payload["to_account"]?.toString();
+      final amount = payload["amount"];
+
+      if (toAccount == null || amount == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('QR thiếu thông tin tài khoản / số tiền')),
+        );
+        _isProcessing = false;
+        return;
+      }
+
+      // Lấy user hiện tại (người quét = người gửi)
+      final prefs = await SharedPreferences.getInstance();
+      final senderId = prefs.getInt("user_id");
+
+      if (senderId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content:
+                  Text('Không tìm thấy user_id. Vui lòng đăng nhập lại.')),
+        );
+        _isProcessing = false;
+        return;
+      }
+
+      // Lấy stk người gửi
+      http.Response? userRes;
+      for (final base in apiUrls) {
+        try {
+          final uri = Uri.parse("$base/user/$senderId");
+          userRes = await http.get(uri).timeout(const Duration(seconds: 8));
+          if (userRes.statusCode == 200) break;
+        } catch (_) {}
+      }
+
+      if (userRes == null || userRes.statusCode != 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không lấy được thông tin người gửi')),
+        );
+        _isProcessing = false;
+        return;
+      }
+
+      final userDecoded = jsonDecode(userRes.body);
+      final userData = userDecoded is Map<String, dynamic>
+          ? userDecoded
+          : Map<String, dynamic>.from(userDecoded);
+      final fromAccount = userData["stk"]?.toString();
+
+      if (fromAccount == null || fromAccount.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tài khoản nguồn không hợp lệ')),
+        );
+        _isProcessing = false;
+        return;
+      }
+
+      // Gửi API chuyển tiền
+      http.Response? txRes;
+      for (final base in apiUrls) {
+        try {
+          final uri = Uri.parse("$base/transactions");
+          txRes = await http
+              .post(
+                uri,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  "user_id": senderId,
+                  "from_account": fromAccount,
+                  "to_account": toAccount,
+                  "amount": amount,
+                  "transfer_method": "INTERNAL",
+                  "transaction_type": "TRANSFER",
+                  "description": "Thanh toán qua QR",
+                }),
+              )
+              .timeout(const Duration(seconds: 8));
+
+          if (txRes.statusCode == 200 || txRes.statusCode == 201) break;
+        } catch (e) {
+          debugPrint("POST /transactions error with $base: $e");
+        }
+      }
+
+      if (txRes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể kết nối server')),
+        );
+        _isProcessing = false;
+        return;
+      }
+
+      if (txRes.statusCode != 200 && txRes.statusCode != 201) {
+        String msg = "Chuyển tiền thất bại (${txRes.statusCode})";
+        try {
+          final decoded = jsonDecode(txRes.body);
+          if (decoded is Map && decoded["message"] != null) {
+            msg = decoded["message"].toString();
+          }
+        } catch (_) {}
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+        _isProcessing = false;
+        return;
+      }
+
+      // Thành công
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Chuyển tiền qua QR thành công!")),
+      );
+      Navigator.pop(context, true); // ✅ chỉ pop 1 lần
+    } finally {
+      _isProcessing = false;
     }
   }
 
@@ -62,34 +218,26 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.photo_library, color: Colors.white),
-            onPressed: _scanFromGallery, // 📁 Quét từ ảnh
-          ),
-          IconButton(
-            icon: const Icon(Icons.flash_on, color: Colors.white),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Flash chưa được bật')),
-              );
-            },
+            onPressed: _scanFromGallery,
           ),
         ],
       ),
       body: Stack(
         children: [
           AiBarcodeScanner(
-            onDetect: (capture) {
+            onDetect: (capture) async {
+              if (_hasHandledCamera) return;            // chặn gọi nhiều lần
+              _hasHandledCamera = true;
+
               final code = capture.barcodes.first.rawValue;
               if (code != null && mounted) {
-                Navigator.pop(context, code);
+                await _handleQrValue(code);
               }
             },
-
             appBarBuilder: (context, controller) => const PreferredSize(
               preferredSize: Size.zero,
               child: SizedBox.shrink(),
             ),
-
-            /// ✅ Overlay full che toàn bộ phần giao diện mặc định (ẩn các nút Upload, Flash...)
             overlayConfig: const ScannerOverlayConfig(
               scannerOverlayBackground: ScannerOverlayBackground.none,
               scannerBorder: ScannerBorder.none,
@@ -103,7 +251,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 }
 
-/// ========== LỚP PHỦ KHUNG QUÉT + BANNER ==========
+/// ================= OVERLAY TPBANK =================
 
 class _TPBankOverlay extends StatelessWidget {
   const _TPBankOverlay();
@@ -118,8 +266,6 @@ class _TPBankOverlay extends StatelessWidget {
         Positioned.fill(
           child: CustomPaint(painter: _BlurBackgroundPainter(scanBox)),
         ),
-
-        /// ✅ Khung quét chính
         Align(
           alignment: Alignment.center,
           child: Container(
@@ -131,8 +277,6 @@ class _TPBankOverlay extends StatelessWidget {
             ),
           ),
         ),
-
-        /// ✅ Tiêu đề trên cùng
         Align(
           alignment: const Alignment(0, -0.7),
           child: Row(
@@ -141,25 +285,23 @@ class _TPBankOverlay extends StatelessWidget {
               Text(
                 'TP',
                 style: TextStyle(
-                  color: Color(0xFF6D20AF),
+                  color: Color(0xFFF37A20),
                   fontWeight: FontWeight.bold,
                   fontSize: 30,
                 ),
               ),
               Text(
                 'Bank',
-                style: TextStyle(color: Color(0xFF6D20AF), fontSize: 30),
+                style: TextStyle(color: Colors.white, fontSize: 30),
               ),
               SizedBox(width: 10),
               Text(
                 'VIETQR',
-                style: TextStyle(color: Colors.white, fontSize: 26),
+                style: TextStyle(color: Colors.white, fontSize: 24),
               ),
             ],
           ),
         ),
-
-        /// ✅ Dòng trạng thái
         const Align(
           alignment: Alignment(0, 0.7),
           child: Text(
@@ -167,15 +309,14 @@ class _TPBankOverlay extends StatelessWidget {
             style: TextStyle(color: Colors.white, fontSize: 18),
           ),
         ),
-
-        /// ✅ Banner chạy logo + dòng chữ
-        const Align(alignment: Alignment(0, 0.9), child: _PartnerBanner()),
+        const Align(
+          alignment: Alignment(0, 0.9),
+          child: _PartnerBanner(),
+        ),
       ],
     );
   }
 }
-
-/// ========== HIỆU ỨNG MỜ NGOÀI KHUNG ==========
 
 class _BlurBackgroundPainter extends CustomPainter {
   final double scanBox;
@@ -192,7 +333,7 @@ class _BlurBackgroundPainter extends CustomPainter {
 
     final paint = Paint()
       ..imageFilter = ImageFilter.blur(sigmaX: 12, sigmaY: 12)
-      ..color = Colors.black.withValues(alpha: 0.5)
+      ..color = Colors.black.withOpacity(0.5)
       ..blendMode = BlendMode.srcOver;
 
     canvas.saveLayer(rect, Paint());
@@ -209,10 +350,9 @@ class _BlurBackgroundPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// ========== BANNER CHẠY LOGO + TEXT ==========
-
 class _PartnerBanner extends StatefulWidget {
   const _PartnerBanner({super.key});
+
   @override
   State<_PartnerBanner> createState() => _PartnerBannerState();
 }
