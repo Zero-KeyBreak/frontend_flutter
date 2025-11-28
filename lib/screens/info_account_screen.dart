@@ -108,9 +108,9 @@ class _InfoAccountScreenState extends State<InfoAccountScreen> {
   }
 
   String _formatCurrency(double amount) {
-    return amount
-        .toStringAsFixed(0)
-        .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => "${m[1]},");
+    final int value = amount.floor(); // ❌ không làm tròn, chỉ bỏ phần thập phân
+  return value.toString().replaceAllMapped(
+      RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (match) => '${match[1]},');
   }
 
   @override

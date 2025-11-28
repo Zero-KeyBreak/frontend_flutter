@@ -54,8 +54,15 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     if (_phoneController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Vui lòng nhập đầy đủ thông tin")),
-      );
+  SnackBar(
+    content: const Text(
+      "Vui lòng nhập đầy đủ thông tin",
+      style: TextStyle(color: Colors.white),   // màu chữ
+    ),
+    backgroundColor: Colors.red,               // màu nền đỏ
+    behavior: SnackBarBehavior.floating,       // (tuỳ chọn) cho đẹp hơn
+  ),
+);
       return;
     }
 

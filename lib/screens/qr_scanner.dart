@@ -191,8 +191,15 @@ class _QRScannerScreenState extends State<QRScannerScreen>
       // Thành công
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Chuyển tiền qua QR thành công!")),
-      );
+  SnackBar(
+    content: const Text(
+      "Vui lòng nhập đầy đủ thông tin",
+      style: TextStyle(color: Colors.white),   // màu chữ
+    ),
+    backgroundColor: Colors.green,               // màu nền đỏ
+    behavior: SnackBarBehavior.floating,       // (tuỳ chọn) cho đẹp hơn
+  ),
+);
       Navigator.pop(context, true); // ✅ chỉ pop 1 lần
     } finally {
       _isProcessing = false;

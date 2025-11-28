@@ -142,8 +142,15 @@ class _PersonalScreenState extends State<PersonalScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Đã đăng xuất!")),
-    );
+  SnackBar(
+    content: const Text(
+      "Vui lòng nhập đầy đủ thông tin",
+      style: TextStyle(color: Colors.white),   // màu chữ
+    ),
+    backgroundColor: Colors.green,               // màu nền đỏ
+    behavior: SnackBarBehavior.floating,       // (tuỳ chọn) cho đẹp hơn
+  ),
+);
 
     Future.delayed(const Duration(milliseconds: 500), () {
       Navigator.pushAndRemoveUntil(
